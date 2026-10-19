@@ -1,0 +1,29 @@
+{
+  "name": "mediagrab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "mediaGrab local multi-platform media workspace",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build:shared": "pnpm --filter @mediagrab/shared build",
+    "build:server": "pnpm --filter @mediagrab/server build",
+    "build:web": "pnpm --filter @mediagrab/web build",
+    "build": "pnpm build:shared && pnpm build:server && pnpm build:web",
+    "dev:server": "pnpm --filter @mediagrab/server dev",
+    "dev:web": "pnpm --filter @mediagrab/web dev",
+    "dev:desktop:core": "pnpm dev:server & pnpm dev:web",
+    "dev:desktop": "pnpm --filter @mediagrab/desktop dev",
+    "dev:shared": "pnpm --filter @mediagrab/shared dev",
+    "start": "node apps/server/dist/index.js",
+    "build:desktop": "pnpm --filter @mediagrab/desktop build",
+    "typecheck": "pnpm build:shared && pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "probe:m1": "pnpm --filter @mediagrab/server probe:m1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,38 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+apps/*/dist/
+packages/*/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/bundle/
+*.tsbuildinfo
+.vite/
+
+# 下载产物
+download/
+*.mp4
+*.m4s
+*.m4a
+*.mp3
+*.flv
+
+# 凭据与本地数据（绝不可提交）
+.env
+.env.*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+credentials/
+cookies*
+secrets/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+*.log

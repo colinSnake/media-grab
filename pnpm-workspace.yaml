@@ -1,0 +1,11 @@
+# pnpm workspace 定义
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# esbuild 是 vitest/vite 的依赖，其 postinstall 负责校验平台二进制。
+# pnpm 10+ 默认拦截依赖的构建脚本，不放行会让 `pnpm install` 以
+# ERR_PNPM_IGNORED_BUILDS 结束（exit 1）。pnpm 12 的键名是 allowBuilds。
+# 注意：将来引入原生依赖（如 better-sqlite3）时，需要在此追加对应条目。
+allowBuilds:
+  esbuild: true
