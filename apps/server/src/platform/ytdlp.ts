@@ -1,11 +1,16 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import type { MediaParseResult, MediaStream, Platform } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
+import { findRepoRoot } from '../paths.js'
 
 const execFileAsync = promisify(execFile)
+const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 type ExecLike = (
   file: string,
   args: readonly string[],
@@ -27,6 +32,7 @@ interface YtDlpFormat {
   ext?: string
   protocol?: string
   mime?: string
+  http_headers?: Record<string, string>
 }
 
 interface YtDlpInfo {
@@ -49,6 +55,24 @@ function normalizeCoverUrl(url: string): string {
   return url.replace(/^http:\/\//i, 'https://')
 }
 
+function projectYtDlpPath(root: string): string {
+  return process.platform === 'win32'
+    ? path.join(root, '.venv', 'Scripts', 'yt-dlp.exe')
+    : path.join(root, '.venv', 'bin', 'yt-dlp')
+}
+
+/** 项目虚拟环境优先于系统 PATH，避免开发环境依赖全局 Python。 */
+export function resolveProjectYtDlp(): string | undefined {
+  const root = findRepoRoot(moduleDir) ?? findRepoRoot(process.cwd())
+  if (root === undefined) return undefined
+  const executable = projectYtDlpPath(root)
+  return existsSync(executable) ? executable : undefined
+}
+
+function defaultYtDlpExecutable(): string {
+  return resolveProjectYtDlp() ?? 'yt-dlp'
+}
+
 function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | undefined {
   if (!isPresent(format.url)) return undefined
   const video = isPresent(format.vcodec) && format.vcodec !== 'none'
@@ -60,7 +84,7 @@ function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | und
     kind,
     combined: video && audio,
     label: video
-      ? `${format.height ?? 0}P${format.fps !== undefined ? ` ${format.fps}fps` : ''}`
+      ? `${Math.min(format.width ?? format.height ?? 0, format.height ?? format.width ?? 0)}P${format.fps !== undefined ? ` ${format.fps}fps` : ''}`
       : `${Math.round(format.tbr ?? 0)}K`,
     url: format.url,
     backupUrls: [],
@@ -78,6 +102,7 @@ function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | und
 export interface YtDlpAdapterOptions {
   platform: Exclude<Platform, 'bilibili' | 'unknown'>
   executable?: string
+  cookieBrowser?: string
   logger?: Logger
   exec?: ExecLike
 }
@@ -86,20 +111,26 @@ export class YtDlpAdapter {
   readonly platform: Exclude<Platform, 'bilibili' | 'unknown'>
   #executable: string
   #allowPythonFallback: boolean
+  #cookieBrowser: string
   #logger: Logger
   #exec: ExecLike
 
   constructor(options: YtDlpAdapterOptions) {
     this.platform = options.platform
-    this.#executable = options.executable?.trim() || 'yt-dlp'
+    this.#executable = options.executable?.trim() || defaultYtDlpExecutable()
     this.#allowPythonFallback = !options.executable?.trim()
+    this.#cookieBrowser = options.cookieBrowser?.trim() ?? ''
     this.#logger = options.logger ?? silentLogger
     this.#exec = options.exec ?? (execFileAsync as unknown as ExecLike)
   }
 
   setExecutable(candidate = ''): void {
-    this.#executable = candidate.trim() || 'yt-dlp'
+    this.#executable = candidate.trim() || defaultYtDlpExecutable()
     this.#allowPythonFallback = candidate.trim() === ''
+  }
+
+  setCookieBrowser(browser = ''): void {
+    this.#cookieBrowser = browser.trim()
   }
 
   private async run(args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
@@ -116,7 +147,12 @@ export class YtDlpAdapter {
   async parse(input: string): Promise<MediaParseResult> {
     let stdout: string
     try {
-      const result = await this.run(['--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download', input])
+      const args = ['--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download']
+      if (this.platform === 'douyin' && this.#cookieBrowser !== '') {
+        args.push('--cookies-from-browser', this.#cookieBrowser)
+      }
+      args.push(input)
+      const result = await this.run(args)
       stdout = result.stdout
     } catch (error) {
       this.#logger.warn({ platform: this.platform, error: error instanceof Error ? error.message : String(error) }, 'yt-dlp 解析失败')
@@ -129,6 +165,12 @@ export class YtDlpAdapter {
       }
       if (/private video|login required|video unavailable|not available in your country/i.test(message)) {
         throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
+      }
+      if (/fresh cookies|cookies.*needed|cookies.*required/i.test(message)) {
+        throw new ApiError('MEDIA_COOKIE_REQUIRED', '抖音需要新鲜的浏览器 Cookie。请在设置中选择曾访问过抖音的浏览器后重试。', 'permission', 403)
+      }
+      if (/could not find .*cookies database|cookies database/i.test(message)) {
+        throw new ApiError('BROWSER_COOKIE_UNAVAILABLE', '无法读取所选浏览器的 Cookie 数据库。请确认浏览器已登录并已完全退出，或授予本地核心读取浏览器数据目录的权限后重试。', 'permission', 403)
       }
       throw new ApiError('EXTRACTOR_FAILED', `${this.platform === 'douyin' ? '抖音' : '小红书'}解析失败：${message}`, 'network', 502)
     }
@@ -147,7 +189,7 @@ export class YtDlpAdapter {
       .map(streamFromFormat)
       .filter((item): item is MediaStream => item !== undefined)
     const video = streams.some((stream) => stream.kind === 'video')
-    const audio = streams.some((stream) => stream.kind === 'audio')
+    const audio = streams.some((stream) => stream.kind === 'audio' || stream.combined)
     return {
       platform: this.platform,
       input,
@@ -164,7 +206,7 @@ export class YtDlpAdapter {
 }
 
 export async function checkYtDlp(candidate = ''): Promise<{ available: boolean; path: string; version: string; error: string }> {
-  const executable = candidate.trim() || 'yt-dlp'
+  const executable = candidate.trim() || defaultYtDlpExecutable()
   try {
     const result = await execFileAsync(executable, ['--version'], { timeout: 5_000 })
     return { available: true, path: executable, version: result.stdout.trim(), error: '' }

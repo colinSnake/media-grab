@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.mediagrab.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --dir ../../.. dev:desktop:core",
-    "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm --dir ../../.. build:web",
+    "beforeDevCommand": "pnpm --dir ../.. dev:desktop:core",
+    "devUrl": "http://localhost:9067",
+    "beforeBuildCommand": "pnpm --dir ../.. build:web",
     "frontendDist": "../../web/dist"
   },
   "app": {
@@ -18,7 +18,9 @@
         "minWidth": 960,
         "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

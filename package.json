@@ -18,6 +18,7 @@
     "dev:desktop": "pnpm --filter @mediagrab/desktop dev",
     "dev:shared": "pnpm --filter @mediagrab/shared dev",
     "start": "node apps/server/dist/index.js",
+    "setup:ytdlp": "node scripts/setup-ytdlp.mjs",
     "build:desktop": "pnpm --filter @mediagrab/desktop build",
     "typecheck": "pnpm build:shared && pnpm -r typecheck",
     "test": "pnpm -r test",

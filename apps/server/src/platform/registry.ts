@@ -136,7 +136,7 @@ export class MediaRegistry {
     this.#config = options.config
     this.register(new BilibiliMediaAdapter(options.bili))
     const executable = options.config.get().ytDlpPath
-    const douyin = new YtDlpAdapter({ platform: 'douyin', executable, logger: options.logger })
+    const douyin = new YtDlpAdapter({ platform: 'douyin', executable, cookieBrowser: options.config.get().douyinCookieBrowser, logger: options.logger })
     const xiaohongshu = new YtDlpAdapter({ platform: 'xiaohongshu', executable, logger: options.logger })
     this.#ytDlpAdapters = [douyin, xiaohongshu]
     this.register(douyin)
@@ -160,7 +160,10 @@ export class MediaRegistry {
       throw new ApiError('UNSUPPORTED_PLATFORM', '该平台适配器还未接入。', 'invalid', 422)
     }
     const executable = this.#config.get().ytDlpPath
-    for (const ytdlp of this.#ytDlpAdapters) ytdlp.setExecutable(executable)
+    for (const ytdlp of this.#ytDlpAdapters) {
+      ytdlp.setExecutable(executable)
+      ytdlp.setCookieBrowser(ytdlp.platform === 'douyin' ? this.#config.get().douyinCookieBrowser : '')
+    }
     return adapter.parse(detected.value.raw)
   }
 }

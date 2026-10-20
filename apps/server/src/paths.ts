@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -55,11 +56,19 @@ export function resolveDbPath(
   return path.join(resolveDataDir(moduleDir), 'mediaGrab.db')
 }
 
-/** 解析用户配置的下载目录；相对路径始终相对仓库根目录，避免随启动 cwd 漂移。 */
+/**
+ * 解析用户配置的下载目录。
+ *
+ * 默认值使用 `~/Downloads/mediaGrab`，由本地核心展开到当前用户目录；
+ * 绝对路径保持不变，旧的相对路径继续相对仓库根目录解析以保持兼容。
+ */
 export function resolveDownloadDir(
   savePath: string,
   moduleDir: string = path.dirname(fileURLToPath(import.meta.url)),
 ): string {
+  if (savePath === '~' || savePath.startsWith('~/')) {
+    return path.resolve(os.homedir(), savePath === '~' ? '.' : savePath.slice(2))
+  }
   const root = findRepoRoot(moduleDir)
   const base = root ?? path.resolve(moduleDir, '..', '..')
   return path.resolve(base, savePath)

@@ -1,23 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   Activity,
   ArrowDownToLine,
   ArrowRight,
   Check,
   Clock3,
-  FileVideo2,
   FolderDown,
   Link2,
   ListChecks,
   LoaderCircle,
+  Monitor,
+  Moon,
   Music2,
   Plus,
-  RotateCcw,
   Search,
+  Server,
   Settings2,
-  ShieldCheck,
-  Trash2,
-  UserRound,
+  Sun,
   X,
 } from 'lucide-react'
 import type {
@@ -28,14 +29,54 @@ import type {
   DownloadMode,
   MediaParseResult,
   ParseResult,
-  QualityAvailability,
   TaskSnapshot,
 } from '@mediagrab/shared'
+import { taskDedupeKey } from '@mediagrab/shared'
 import { activateAccount, cancelTask, createTask, getAccounts, getConfig, getExtractorStatus, getHealth, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo.svg'
+import { TaskRow } from './components/TaskRow'
+import { TaskSearchDialog } from './components/TaskSearchDialog'
+import { isTerminalTask } from './components/TaskRow'
+import { SettingsModal } from './components/SettingsModal'
+import { MediaPreview } from './components/MediaPreview'
+import { modeOptions } from './lib/options'
 
 type Platform = '全部' | 'B站' | '抖音' | '小红书'
+type AccountPlatform = 'bilibili' | 'douyin' | 'xiaohongshu'
 type WorkspaceView = 'new' | 'queue' | 'history'
+type ThemeMode = 'system' | 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'mediagrab-theme'
+const themeModes: ThemeMode[] = ['system', 'dark', 'light']
+const themeLabels: Record<ThemeMode, string> = {
+  system: '跟随系统',
+  light: '浅色主题',
+  dark: '深色主题',
+}
+
+function coreStatusTooltip(health: HealthResponse | null, extractor: ExtractorStatus | null): string {
+  if (health === null) return '本地核心 · 连接失败'
+  const extractorStatus = extractor === null
+    ? '正在检查 yt-dlp'
+    : extractor.available
+      ? `yt-dlp ${extractor.version}`
+      : 'yt-dlp 未安装'
+  return `本地核心 · 连接正常\n${health.runtime.platform} · ${extractorStatus}`
+}
+
+function readThemeMode(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY)
+    if (stored === 'system' || stored === 'light' || stored === 'dark') return stored
+  } catch {
+    // Restricted webviews may not expose localStorage.
+  }
+  return 'system'
+}
+
+function isTauriDesktop(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
 
 const platformOptions: { label: Platform; tone: string; hint: string }[] = [
   { label: '全部', tone: 'all', hint: '所有来源' },
@@ -44,19 +85,6 @@ const platformOptions: { label: Platform; tone: string; hint: string }[] = [
   { label: '小红书', tone: 'rednote', hint: 'xiaohongshu.com' },
 ]
 
-const modeOptions: { value: DownloadMode; label: string; detail: string }[] = [
-  { value: 'video+audio', label: '视频 + 音频', detail: 'MP4 合并' },
-  { value: 'video', label: '仅视频', detail: '不含音频' },
-  { value: 'audio', label: '仅音频', detail: 'M4A / MP3' },
-]
-
-function formatDuration(seconds: number): string {
-  if (seconds <= 0) return '--:--'
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
-  return `${minutes}:${rest.toString().padStart(2, '0')}`
-}
-
 function platformFromInput(input: string): Exclude<Platform, '全部'> {
   const normalized = input.toLowerCase()
   if (normalized.includes('douyin') || normalized.includes('iesdouyin')) return '抖音'
@@ -64,35 +92,18 @@ function platformFromInput(input: string): Exclude<Platform, '全部'> {
   return 'B站'
 }
 
-function qualityLabel(item: QualityAvailability): string {
-  return item.label.replace('（', ' · ').replace('）', '')
-}
-
-function taskStatusLabel(status: TaskSnapshot['status']): string {
-  const labels: Record<TaskSnapshot['status'], string> = {
-    waiting: '等待中',
-    downloading: '下载中',
-    merging: '合并中',
-    success: '已完成',
-    fail: '失败',
-    stopped: '已停止',
-  }
-  return labels[status]
-}
-
-function isTerminalTask(task: TaskSnapshot): boolean {
-  return task.status === 'success' || task.status === 'fail' || task.status === 'stopped'
-}
-
-function coverProxyUrl(cover: string): string {
-  return `/api/cover?url=${encodeURIComponent(cover)}`
-}
-
-function taskFileUrl(id: string): string {
-  return `/api/tasks/${encodeURIComponent(id)}/file`
+function uniqueTaskList(items: TaskSnapshot[]): TaskSnapshot[] {
+  const seen = new Set<string>()
+  return items.filter((task) => {
+    const key = taskDedupeKey(task)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode)
   const [activePlatform, setActivePlatform] = useState<Platform>('全部')
   const [activeView, setActiveView] = useState<WorkspaceView>('new')
   const [input, setInput] = useState('')
@@ -101,7 +112,7 @@ function App() {
   const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null)
   const [selectedQuality, setSelectedQuality] = useState<number | null>(null)
   const [mode, setMode] = useState<DownloadMode>('video+audio')
-  const [audioContainer, setAudioContainer] = useState<AudioContainer>('m4a')
+  const [audioContainer, setAudioContainer] = useState<AudioContainer>('mp3')
   const [isParsing, setIsParsing] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -109,11 +120,45 @@ function App() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [draft, setDraft] = useState<AppConfigPatch>({})
   const [showSettings, setShowSettings] = useState(false)
+  const [showTaskSearch, setShowTaskSearch] = useState(false)
   const [tasks, setTasks] = useState<TaskSnapshot[]>([])
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
-  const [accountLabel, setAccountLabel] = useState('B站账号')
+  const [activeAccountPlatform, setActiveAccountPlatform] = useState<AccountPlatform>('bilibili')
   const [accountCookie, setAccountCookie] = useState('')
   const [isSavingAccount, setIsSavingAccount] = useState(false)
+
+  useLayoutEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const applyTheme = () => {
+      const resolvedTheme = themeMode === 'system' ? (media.matches ? 'dark' : 'light') : themeMode
+      document.documentElement.dataset.theme = resolvedTheme
+      document.documentElement.style.colorScheme = resolvedTheme
+      const themeColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor)
+    }
+    applyTheme()
+    media.addEventListener('change', applyTheme)
+    return () => media.removeEventListener('change', applyTheme)
+  }, [themeMode])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, themeMode)
+    } catch {
+      // Keep the current session usable when storage is unavailable.
+    }
+  }, [themeMode])
+
+  const themeIcon = themeMode === 'system' ? <Monitor /> : themeMode === 'light' ? <Sun /> : <Moon />
+  const nextThemeMode = themeModes[(themeModes.indexOf(themeMode) + 1) % themeModes.length] ?? 'system'
+  const themeTooltip = themeLabels[themeMode]
+
+  function handleWindowDragPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0 || !isTauriDesktop()) return
+    const target = event.target as HTMLElement
+    if (target.closest('button, a, input, select, textarea, [role="button"]') !== null) return
+    void getCurrentWindow().startDragging().catch(() => {})
+  }
 
   useEffect(() => {
     void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts()])
@@ -125,6 +170,7 @@ function App() {
         setDraft({
           savePath: configData.savePath,
           ytDlpPath: configData.ytDlpPath,
+          douyinCookieBrowser: configData.douyinCookieBrowser,
           defaultDownloadMode: configData.defaultDownloadMode,
           audioContainer: configData.audioContainer,
         })
@@ -139,7 +185,7 @@ function App() {
   useEffect(() => {
     let active = true
     const refresh = () => {
-      void getTasks().then((next) => { if (active) setTasks(next) }).catch(() => {})
+      void getTasks().then((next) => { if (active) setTasks(uniqueTaskList(next)) }).catch(() => {})
     }
     refresh()
     let timer: number | undefined
@@ -162,7 +208,7 @@ function App() {
           try {
             const message = JSON.parse(event.data as string) as { type?: string; task?: TaskSnapshot; id?: string }
             if (message.type === 'task-update' && message.task !== undefined) {
-              setTasks((current) => [message.task as TaskSnapshot, ...current.filter((item) => item.id !== message.task?.id)])
+              setTasks((current) => uniqueTaskList([message.task as TaskSnapshot, ...current.filter((item) => item.id !== message.task?.id)]))
             } else if (message.type === 'task-removed' && message.id !== undefined) {
               setTasks((current) => current.filter((item) => item.id !== message.id))
             }
@@ -190,8 +236,8 @@ function App() {
   const chosenQuality = availableQualities.find((item) => item.qn === selectedQuality) ?? availableQualities[0]
   const activeTasks = tasks.filter((task) => !isTerminalTask(task))
   const historyTasks = tasks.filter(isTerminalTask)
-  // 下载很快完成时，队列不能变成“点击后没有反应”的空白页；保留最近任务作为可见回执。
-  const queueTasks = activeTasks.length > 0 ? activeTasks : tasks.slice(0, 20)
+  const queueTasks = activeTasks
+  const recentTasks = tasks.slice(0, 3)
   const viewTitle = activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
 
   useEffect(() => {
@@ -228,21 +274,52 @@ function App() {
     }
   }
 
+  async function handlePageChange(page: number) {
+    if (parsed === null || page === parsed.page) return
+    setIsParsing(true)
+    setNotice(null)
+    try {
+      const result = await parseMedia(parsed.input, page)
+      setParsed(result)
+      setSelectedQuality(result.qualities.find((item) => item.available)?.qn ?? null)
+      setNotice({ kind: 'success', text: `已切换到 P${result.page}，资源信息已更新。` })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '分 P 解析失败，请稍后重试。' })
+    } finally {
+      setIsParsing(false)
+    }
+  }
+
   async function enqueue() {
     if (parsed === null && (genericParsed === null || selectedStreamId === null)) return
     try {
-      const task = parsed !== null
+      const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
+      const result = parsed !== null
         ? await createTask({
             platform: 'bilibili', input: parsed.input, bvid: parsed.bvid, cid: parsed.cid,
-            qn: chosenQuality?.qn, mode, audioContainer, title: parsed.title,
+            qn: chosenQuality?.qn, qualityLabel: chosenQuality?.label, mode, audioContainer, title: parsed.title,
           })
         : await createTask({
             platform: genericParsed?.platform ?? 'unknown', input: genericParsed?.input,
-            streamId: selectedStreamId ?? undefined, mode, audioContainer, title: genericParsed?.title ?? '',
+            streamId: selectedStreamId ?? undefined,
+            qualityLabel: selectedGenericStream === undefined
+              ? undefined
+              : selectedGenericStream.label || (selectedGenericStream.width !== undefined && selectedGenericStream.height !== undefined
+                ? `${selectedGenericStream.width}×${selectedGenericStream.height}`
+                : selectedGenericStream.codecs || selectedGenericStream.mimeType || (selectedGenericStream.kind === 'audio' ? '音频资源' : '视频资源')),
+            mode, audioContainer, title: genericParsed?.title ?? '',
           })
-      setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)])
-      setActiveView('queue')
-      setNotice({ kind: 'success', text: '任务已加入队列，下载状态会自动更新。' })
+      const task = result.task
+      setTasks((current) => uniqueTaskList([task, ...current.filter((item) => item.id !== task.id)]))
+      setInput('')
+      setParsed(null)
+      setGenericParsed(null)
+      setSelectedStreamId(null)
+      setSelectedQuality(null)
+      setActiveView(result.deduplicated && isTerminalTask(task) ? 'history' : 'queue')
+      setNotice(result.deduplicated
+        ? { kind: 'info', text: isTerminalTask(task) ? '相同下载配置已存在，已保留历史记录中的任务。' : '相同下载配置已在队列中，未重复创建任务。' }
+        : null)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '任务创建失败。' })
     }
@@ -273,7 +350,7 @@ function App() {
   async function retryDownload(id: string) {
     try {
       const next = await retryTask(id)
-      setTasks((current) => [next, ...current.filter((item) => item.id !== next.id)])
+      setTasks((current) => uniqueTaskList([next, ...current.filter((item) => item.id !== next.id)]))
       setActiveView('queue')
       setNotice({ kind: 'success', text: '任务已重新加入下载队列。' })
     } catch (error) {
@@ -294,7 +371,7 @@ function App() {
   async function saveBiliAccount() {
     setIsSavingAccount(true)
     try {
-      const account = await importBiliAccount(accountLabel, accountCookie)
+      const account = await importBiliAccount(accountCookie)
       setAccounts((current) => [account, ...current.filter((item) => item.id !== account.id).map((item) => ({ ...item, active: false }))])
       setAccountCookie('')
       setNotice({ kind: 'success', text: `B站账号「${account.displayName || account.label}」已验证并启用。` })
@@ -338,15 +415,16 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
+        <div className="sidebar-window-drag-region" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown} aria-hidden="true" />
         <div className="brand-lockup">
           <div className="brand-mark"><img src={logoUrl} alt="MediaGrab" /></div>
-          <div className="brand-name"><strong>MediaGrab</strong><span>MEDIA WORKSPACE</span></div>
+          <div className="brand-name"><strong>MediaGrab</strong><span>让内容回到本地</span></div>
         </div>
 
         <div className="sidebar-label">工作区</div>
         <nav className="side-nav" aria-label="主导航">
           <button className={`nav-item ${activeView === 'new' ? 'active' : ''}`} type="button" onClick={() => setActiveView('new')}><Plus /><span>新建任务</span></button>
-          <button className={`nav-item ${activeView === 'queue' ? 'active' : ''}`} type="button" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span><em>{queueTasks.length}</em></button>
+          <button className={`nav-item ${activeView === 'queue' ? 'active' : ''}`} type="button" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span><em className="nav-count" aria-label={`${queueTasks.length} 个排队任务`}>{queueTasks.length}</em></button>
           <button className={`nav-item ${activeView === 'history' ? 'active' : ''}`} type="button" onClick={() => setActiveView('history')}><Clock3 /><span>历史记录</span></button>
         </nav>
 
@@ -363,28 +441,41 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="runtime-card">
-            <div className="runtime-heading"><span className={`status-dot ${health === null ? 'muted-dot' : ''}`} />本地核心</div>
-            <p>{health === null ? '等待连接' : `运行中 · ${health.runtime.platform}`}</p>
-            <span className={extractor?.available ? 'extractor-ready' : 'extractor-missing'}>{extractor === null ? '检查 extractor…' : extractor.available ? `yt-dlp ${extractor.version}` : 'yt-dlp 未安装'}</span>
-          </div>
           <button className="settings-link" type="button" onClick={() => setShowSettings(true)}><Settings2 /><span>设置</span></button>
         </div>
       </aside>
 
       <main className={`main-content ${activeView !== 'new' ? 'list-view' : ''}`}>
-        <header className="topbar">
-          <div className="breadcrumb"><span>工作区</span><span className="crumb-slash">/</span><strong>{viewTitle}</strong></div>
+        <header className="topbar" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown}>
           <div className="topbar-actions">
-            <button className="icon-button" type="button" title="搜索任务"><Search /></button>
-            <button className="avatar-button" type="button" title="设置" onClick={() => setShowSettings(true)}><img src={logoUrl} alt="" /></button>
+            <button className="icon-button" type="button" title="搜索任务" aria-label="搜索任务" onClick={() => setShowTaskSearch(true)}><Search /></button>
+            <button
+              className="icon-button theme-toggle"
+              type="button"
+              data-tooltip={themeTooltip}
+              aria-label={themeTooltip}
+              onClick={() => setThemeMode(nextThemeMode)}
+            >
+              {themeIcon}
+            </button>
+            <span
+              className={`core-status tooltip-target ${health === null ? 'error' : 'ready'}`}
+              data-tooltip={coreStatusTooltip(health, extractor)}
+              aria-label={coreStatusTooltip(health, extractor)}
+              role="status"
+              tabIndex={0}
+            >
+              <Server />
+              <span className="core-status-dot" />
+            </span>
           </div>
         </header>
+
+        {activeView !== 'new' && notice !== null && <div className={`notice global-notice ${notice.kind}`} role="status"><span>{notice.kind === 'error' ? <X /> : notice.kind === 'success' ? <Check /> : <Activity />}</span>{notice.text}</div>}
 
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
             <div>
-              <div className="hero-kicker"><span className="kicker-line" /> MEDIA INTAKE</div>
               <h1>把喜欢的内容，<span>带回本地。</span></h1>
               <p>粘贴视频或分享链接，MediaGrab 为你整理可用的媒体资源。</p>
             </div>
@@ -412,89 +503,73 @@ function App() {
         </section>}
 
         {activeView === 'new' && <div className="workspace-grid">
-          <section className="panel result-panel">
-            <div className="panel-heading">
-              <div className="heading-title"><span className="heading-icon"><FileVideo2 /></span><div><h2>媒体预览</h2><p>{parsed === null && genericParsed === null ? '解析结果将在此显示' : '选择要保存的资源'}</p></div></div>
-              {(parsed !== null || genericParsed !== null) && <span className="recognized-pill"><span className="status-dot" />{parsed !== null ? platformFromInput(parsed.input) : genericParsed?.platform}</span>}
-            </div>
-            {parsed === null && genericParsed === null ? (
-              <div className="result-empty">
-                <div className="empty-graphic"><div className="empty-play"><ArrowDownToLine /></div><span className="empty-spark spark-a" /><span className="empty-spark spark-b" /></div>
-                <strong>等待一个链接</strong>
-                <p>支持 B站、抖音与小红书分享链接</p>
-              </div>
-            ) : parsed !== null ? (
-              <div className="media-result">
-                <div className="media-cover">
-                  {parsed.cover ? <><div className="cover-fallback"><FileVideo2 /></div><img src={coverProxyUrl(parsed.cover)} alt="" onError={(event) => event.currentTarget.remove()} /></> : <div className="cover-fallback"><FileVideo2 /></div>}
-                  <span className="cover-duration">{formatDuration(parsed.durationSec)}</span>
-                </div>
-                <div className="media-details">
-                  <div className="media-meta"><span className="mini-platform">{platformFromInput(parsed.input)}</span><span className="media-id">{parsed.bvid}</span></div>
-                  <h3 title={parsed.title}>{parsed.title}</h3>
-                  <p className="creator">{parsed.ownerName || '未知创作者'} <span>·</span> {parsed.pages.length} 个分段</p>
-                  <div className="quality-list">
-                    <div className="resource-label">可用清晰度 <span>实际可获取</span></div>
-                    <div className="quality-options">
-                      {parsed.qualities.filter((item) => item.available).slice(0, 4).map((item) => <button key={item.qn} type="button" className={`quality-option ${item.qn === selectedQuality ? 'selected' : ''}`} onClick={() => setSelectedQuality(item.qn)}>{qualityLabel(item)}</button>)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : genericParsed !== null ? (
-              <div className="media-result">
-                <div className="media-cover">
-                  {genericParsed.cover ? <><div className="cover-fallback"><FileVideo2 /></div><img src={coverProxyUrl(genericParsed.cover)} alt="" onError={(event) => event.currentTarget.remove()} /></> : <div className="cover-fallback"><FileVideo2 /></div>}
-                  <span className="cover-duration">{formatDuration(genericParsed.durationSec)}</span>
-                </div>
-                <div className="media-details">
-                  <div className="media-meta"><span className={`mini-platform ${genericParsed.platform}`}>{genericParsed.platform}</span><span className="media-id">{genericParsed.id}</span></div>
-                  <h3 title={genericParsed.title}>{genericParsed.title || '未命名媒体'}</h3>
-                  <p className="creator">{genericParsed.authorName || '未知创作者'} <span>·</span> {genericParsed.streams.length} 种资源</p>
-                  <div className="quality-list">
-                    <div className="resource-label">资源格式 <span>选择一个</span></div>
-                    <div className="stream-options">
-                      {genericParsed.streams.slice(0, 3).map((stream) => <button key={stream.id} type="button" className={`stream-option ${selectedStreamId === stream.id ? 'selected' : ''}`} onClick={() => setSelectedStreamId(stream.id)}><span className="stream-kind">{stream.kind === 'audio' ? <Music2 /> : <FileVideo2 />}</span><span className="stream-copy"><strong>{stream.kind === 'video' ? stream.label || '视频' : `音频 ${stream.label || ''}`}</strong><small>{stream.codecs || stream.mimeType || '媒体流'}</small></span>{selectedStreamId === stream.id && <Check className="stream-check" />}</button>)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </section>
+          <MediaPreview parsed={parsed} genericParsed={genericParsed} selectedQuality={selectedQuality} selectedStreamId={selectedStreamId} onSelectQuality={setSelectedQuality} onSelectStream={setSelectedStreamId} onSelectPage={(page) => void handlePageChange(page)} />
 
           <div className="right-stack">
             <section className="panel output-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><span className="heading-icon"><FolderDown /></span><div><h2>保存设置</h2><p>配置文件输出方式</p></div></div>
+                <div className="heading-title"><span className="heading-icon"><FolderDown /></span><div><h2>保存设置</h2></div></div>
               </div>
               <div className="mode-list">
-                {modeOptions.map((option) => <button key={option.value} type="button" className={`mode-option ${mode === option.value ? 'selected' : ''}`} onClick={() => setMode(option.value)}><span className="mode-radio" /><span className="mode-copy"><strong>{option.label}</strong><small>{option.detail}</small></span><span className="mode-check">{mode === option.value && <Check />}</span></button>)}
+                {modeOptions.map((option) => (
+                  <div key={option.value} className={`mode-option ${mode === option.value ? 'selected' : ''}`}>
+                    <button className="mode-choice" type="button" aria-pressed={mode === option.value} onClick={() => setMode(option.value)}>
+                      <span className="mode-radio" />
+                      <span className="mode-copy"><strong>{option.label}</strong>{option.detail !== '' && <small>{option.detail}</small>}</span>
+                    </button>
+                    {option.value === 'audio' && mode === 'audio' && <span className="segmented" role="group" aria-label="音频格式">
+                      {(['m4a', 'mp3'] as AudioContainer[]).map((container) => <button key={container} type="button" aria-pressed={audioContainer === container} className={audioContainer === container ? 'selected' : ''} onClick={() => { setMode('audio'); setAudioContainer(container) }}>{container.toUpperCase()}</button>)}
+                    </span>}
+                    <span className="mode-check">{mode === option.value && <Check />}</span>
+                  </div>
+                ))}
               </div>
-              {mode === 'audio' && <div className="audio-choice"><span>音频格式</span><div className="segmented">{(['m4a', 'mp3'] as AudioContainer[]).map((container) => <button key={container} type="button" className={audioContainer === container ? 'selected' : ''} onClick={() => setAudioContainer(container)}>{container.toUpperCase()}</button>)}</div></div>}
-              <div className="save-path"><FolderDown /><span title={config?.savePath}>{config?.savePath ?? '默认下载目录'}</span><button type="button" title="设置下载目录" onClick={() => setShowSettings(true)}><Settings2 /></button></div>
               <button className="queue-button" type="button" onClick={() => void enqueue()} disabled={parsed === null && (genericParsed === null || selectedStreamId === null)}><ArrowDownToLine /><span>加入下载队列</span></button>
             </section>
 
             <section className="panel tasks-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><span className="heading-icon"><ListChecks /></span><div><h2>最近任务</h2><p>{tasks.length === 0 ? '还没有下载任务' : `${tasks.length} 个本地任务`}</p></div></div>
-                <span className="task-count">{tasks.length.toString().padStart(2, '0')}</span>
+                <div className="heading-title"><span className="heading-icon"><ListChecks /></span><div><h2>最近任务</h2></div></div>
+                <span className="task-count" aria-label={`${tasks.length} 项任务`}><strong>{tasks.length}</strong><small>项</small></span>
               </div>
-              {tasks.length === 0 ? <div className="tasks-empty"><Clock3 /><span>新任务会显示在这里</span></div> : <div className="task-list">{tasks.slice(0, 3).map((task) => <div className="task-row" key={task.id}><span className={`task-type-icon ${task.mode === 'audio' ? 'audio' : ''}`}>{task.mode === 'audio' ? <Music2 /> : <FileVideo2 />}</span><span className="task-title"><strong title={task.title || task.bvid || task.input}>{task.title || task.bvid || task.input}</strong><small>{task.platform} · {task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</small></span><span className={`task-indicator ${task.status}`}>{task.status === 'success' ? <Check /> : task.status === 'fail' ? <X /> : task.status === 'waiting' ? <Clock3 /> : <LoaderCircle className="spin" />}</span>{(task.status === 'waiting' || task.status === 'downloading' || task.status === 'merging') && <button className="task-action" type="button" title="取消任务" onClick={() => void stopTask(task.id)}><X /></button>}{isTerminalTask(task) && <button className="task-action" type="button" title="删除任务" onClick={() => void removeHistoryTask(task.id)}><Trash2 /></button>}</div>)}</div>}
+              {recentTasks.length === 0 ? <div className="tasks-empty"><Clock3 /><span>新任务会显示在这里</span></div> : <div className="task-list">{recentTasks.map((task) => <TaskRow key={task.id} task={task} variant="compact" onCancel={(id) => void stopTask(id)} onRemove={(id) => void removeHistoryTask(id)} />)}</div>}
             </section>
           </div>
         </div>}
 
         {activeView !== 'new' && <section className="panel task-view-panel">
           <div className="panel-heading">
-            <div className="heading-title"><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span><div><h2>{viewTitle}</h2><p>{activeView === 'queue' ? '正在等待或处理的本地任务' : '已完成、失败或停止的任务'}</p></div></div>
-            <span className="task-count">{(activeView === 'queue' ? queueTasks : historyTasks).length.toString().padStart(2, '0')}</span>
+            <div className="heading-title"><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span><div><h2>{viewTitle}</h2></div></div>
+            <span className="task-count" aria-label={`${(activeView === 'queue' ? queueTasks : historyTasks).length} 项任务`}><strong>{(activeView === 'queue' ? queueTasks : historyTasks).length}</strong><small>项</small></span>
           </div>
-          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong><span>{activeView === 'queue' ? '从新建任务解析内容后加入下载队列。' : '完成或停止的下载会显示在这里。'}</span></div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <div className="task-view-row" key={task.id}><span className={`task-type-icon ${task.mode === 'audio' ? 'audio' : ''}`}>{task.mode === 'audio' ? <Music2 /> : <FileVideo2 />}</span><span className="task-title"><strong title={task.title || task.bvid || task.input}>{task.title || task.bvid || task.input}</strong><small>{task.platform} · {task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'} · {taskStatusLabel(task.status)}{task.status === 'success' ? ` · ${task.fileName}` : ''}</small></span><span className={`task-indicator ${task.status}`}>{task.status === 'success' ? <Check /> : task.status === 'fail' ? <X /> : task.status === 'stopped' ? <X /> : task.status === 'waiting' ? <Clock3 /> : <LoaderCircle className="spin" />}</span>{task.status === 'success' && <a className="task-action" title="下载文件" href={taskFileUrl(task.id)} download><ArrowDownToLine /></a>}{!isTerminalTask(task) && <button className="task-action" type="button" title="取消任务" onClick={() => void stopTask(task.id)}><X /></button>}{isTerminalTask(task) && task.status !== 'success' && <button className="task-action" type="button" title="重试任务" onClick={() => void retryDownload(task.id)}><RotateCcw /></button>}{isTerminalTask(task) && <button className="task-action" type="button" title="删除任务" onClick={() => void removeHistoryTask(task.id)}><Trash2 /></button>}</div>)}</div>}
+          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong><span>{activeView === 'queue' ? '从新建任务解析内容后加入下载队列。' : '完成、失败或停止的下载会显示在这里。'}</span></div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} onCancel={(id) => void stopTask(id)} onRetry={(id) => void retryDownload(id)} onRemove={(id) => void removeHistoryTask(id)} />)}</div>}
         </section>}
       </main>
 
-      {showSettings && <div className="modal-backdrop" role="presentation" onClick={() => setShowSettings(false)}><section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">PREFERENCES</p><h2 id="settings-title">应用设置</h2></div><button className="icon-button" type="button" title="关闭" onClick={() => setShowSettings(false)}><X /></button></div><label className="field-label">下载目录<input value={draft.savePath ?? ''} onChange={(event) => setDraft((current) => ({ ...current, savePath: event.target.value }))} /></label><label className="field-label">yt-dlp 路径 <span>留空表示使用 PATH</span><input placeholder="yt-dlp" value={draft.ytDlpPath ?? ''} onChange={(event) => setDraft((current) => ({ ...current, ytDlpPath: event.target.value }))} /></label><label className="field-label">默认输出<select value={draft.defaultDownloadMode ?? 'video+audio'} onChange={(event) => setDraft((current) => ({ ...current, defaultDownloadMode: event.target.value as DownloadMode }))}>{modeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><div className="account-section"><div className="account-section-heading"><div><p className="eyebrow">ACCOUNTS</p><h3><UserRound /> B站账号</h3></div><span>凭据仅保存在本机</span></div><p className="account-hint">导入浏览器复制的 Cookie 后，可获取账号实际有权限的清晰度。不会上传到远程服务，也不会在页面回显。</p>{accounts.length > 0 && <div className="account-list">{accounts.map((account) => <div className={`account-row ${account.active ? 'active' : ''}`} key={account.id}><span className="account-avatar"><UserRound /></span><span className="account-copy"><strong>{account.displayName || account.label}</strong><small>{account.active ? '当前使用' : account.status === 'active' ? '已验证' : '需要重新登录'}{account.vip ? ' · 大会员' : ''}</small></span>{!account.active && <button className="account-action" type="button" title="切换账号" onClick={() => void activateBiliAccount(account.id)}><ShieldCheck /></button>}<button className="account-action" type="button" title="验证账号" onClick={() => void verifyBiliAccount(account.id)}><Check /></button><button className="account-action danger" type="button" title="删除账号" onClick={() => void deleteBiliAccount(account.id)}><Trash2 /></button></div>)}</div>}<label className="field-label">账号名称<input value={accountLabel} onChange={(event) => setAccountLabel(event.target.value)} /></label><label className="field-label">Cookie <span>只保存在本机核心，不会显示在任务或日志中</span><textarea className="account-cookie-input" value={accountCookie} onChange={(event) => setAccountCookie(event.target.value)} placeholder="粘贴 B站 Cookie，例如包含 SESSDATA=..." /></label><button className="account-import-button" type="button" onClick={() => void saveBiliAccount()} disabled={isSavingAccount || accountCookie.trim() === ''}>{isSavingAccount ? <LoaderCircle className="spin" /> : <ShieldCheck />}<span>{isSavingAccount ? '正在验证' : '导入并验证 B站账号'}</span></button></div><div className="modal-footer"><span>MediaGrab</span><button className="primary-button" type="button" onClick={() => void saveSettings()}><Check /><span>保存设置</span></button></div></section></div>}
+      <TaskSearchDialog
+        open={showTaskSearch}
+        tasks={tasks}
+        onClose={() => setShowTaskSearch(false)}
+        onSelect={(task) => { setActiveView(isTerminalTask(task) ? 'history' : 'queue'); setShowTaskSearch(false) }}
+      />
+
+      <SettingsModal
+        open={showSettings}
+        draft={draft}
+        onDraftChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        accounts={accounts}
+        activeAccountPlatform={activeAccountPlatform}
+        onAccountPlatformChange={setActiveAccountPlatform}
+        accountCookie={accountCookie}
+        isSavingAccount={isSavingAccount}
+        onAccountCookieChange={setAccountCookie}
+        onSave={() => void saveSettings()}
+        onClose={() => setShowSettings(false)}
+        onSaveAccount={() => void saveBiliAccount()}
+        onActivateAccount={(id) => void activateBiliAccount(id)}
+        onVerifyAccount={(id) => void verifyBiliAccount(id)}
+        onDeleteAccount={(id) => void deleteBiliAccount(id)}
+      />
     </div>
   )
 }

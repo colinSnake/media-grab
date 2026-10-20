@@ -17,11 +17,12 @@ import {
 describe('配置', () => {
   it('零参数即得完整默认配置，且默认只监听本机回环', () => {
     const cfg = defaultAppConfig()
-    expect(cfg.serverPort).toBe(8787)
+    expect(cfg.serverPort).toBe(9070)
     expect(cfg.bindHost).toBe('127.0.0.1')
     expect(cfg.defaultDownloadMode).toBe('video+audio')
-    expect(cfg.audioContainer).toBe('m4a')
+    expect(cfg.audioContainer).toBe('mp3')
     expect(cfg.videoCodecPriority).toEqual(['hevc', 'avc', 'av1'])
+    expect(cfg.savePath).toBe('~/Downloads/mediaGrab')
   })
 
   it('拒绝非法端口与非法下载模式', () => {
@@ -36,7 +37,7 @@ describe('配置', () => {
     })
     expect(merged.audioContainer).toBe('mp3')
     expect(merged.savePath).toBe('/tmp/dl')
-    expect(merged.serverPort).toBe(8787)
+    expect(merged.serverPort).toBe(9070)
   })
 
   it('未知字段被丢弃，不会污染配置', () => {

@@ -30,6 +30,9 @@ export type DownloadMode = z.infer<typeof downloadModeSchema>
 export const audioContainerSchema = z.enum(['m4a', 'mp3'])
 export type AudioContainer = z.infer<typeof audioContainerSchema>
 
+export const browserCookieSourceSchema = z.enum(['', 'brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale'])
+export type BrowserCookieSource = z.infer<typeof browserCookieSourceSchema>
+
 /**
  * 应用配置。
  *
@@ -38,15 +41,18 @@ export type AudioContainer = z.infer<typeof audioContainerSchema>
  */
 export const appConfigSchema = z.object({
   /** 下载保存目录 */
-  savePath: z.string().min(1).default('./download'),
+  /** 默认值由 server 解析为当前用户的 Downloads/mediaGrab 目录 */
+  savePath: z.string().min(1).default('~/Downloads/mediaGrab'),
   /** ffmpeg 可执行文件路径；空字符串表示使用 PATH 中的 ffmpeg */
   ffmpegPath: z.string().default(''),
   /** yt-dlp executable; empty means search PATH */
   ytDlpPath: z.string().default(''),
+  /** Optional browser profile whose cookies yt-dlp uses for Douyin extraction */
+  douyinCookieBrowser: browserCookieSourceSchema.default(''),
   /** 新建任务时的默认下载模式（页面上仍可临时切换） */
   defaultDownloadMode: downloadModeSchema.default('video+audio'),
   /** 音频容器：仅 mode=audio 时生效 */
-  audioContainer: audioContainerSchema.default('m4a'),
+  audioContainer: audioContainerSchema.default('mp3'),
   /** mp3 转码码率（kbps）；m4a 路径忽略此值 */
   audioBitrateKbps: z.number().int().min(64).max(320).default(192),
   /** 同时进行的下载任务数 */
@@ -60,7 +66,7 @@ export const appConfigSchema = z.object({
   /** 音质优先级（30280=192K；30250=杜比全景声、30251=Hi-Res 需登录且为大会员） */
   audioQualityPriority: z.array(z.number().int()).min(1).default([30280, 30232, 30216]),
   /** HTTP 服务监听端口 */
-  serverPort: z.number().int().min(1).max(65535).default(8787),
+  serverPort: z.number().int().min(1).max(65535).default(9070),
   /** 监听地址。安全底线：只监听本机回环，不要改成 0.0.0.0 */
   bindHost: z.string().min(1).default('127.0.0.1'),
   /** 本地访问令牌；非空时 /api/* 需带 Authorization: Bearer <token> */

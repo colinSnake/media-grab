@@ -6,9 +6,11 @@ import type { Services } from '../services.js'
 
 export interface MediaRoutesDeps { services: Services }
 
-function isAllowedCoverHost(hostname: string): boolean {
+export function isAllowedCoverHost(hostname: string): boolean {
   const host = hostname.toLowerCase()
-  return host.endsWith('.hdslb.com') || host === 'hdslb.com' || host.endsWith('.bilibili.com') || host === 'bilibili.com'
+  return host.endsWith('.hdslb.com') || host === 'hdslb.com'
+    || host.endsWith('.bilibili.com') || host === 'bilibili.com'
+    || host.endsWith('.xhscdn.com') || host === 'xhscdn.com'
 }
 
 function coverUrlFromQuery(value: unknown): URL {
@@ -22,7 +24,7 @@ function coverUrlFromQuery(value: unknown): URL {
     throw new ApiError('INVALID_COVER_URL', '封面地址格式不正确', 'invalid', 400)
   }
   if (url.protocol !== 'https:' || !isAllowedCoverHost(url.hostname)) {
-    throw new ApiError('INVALID_COVER_URL', '只允许代理 B站封面地址', 'invalid', 400)
+    throw new ApiError('INVALID_COVER_URL', '封面地址来源不受支持', 'invalid', 400)
   }
   return url
 }
@@ -33,7 +35,7 @@ export const mediaRoutes: FastifyPluginAsync<MediaRoutesDeps> = async (app, opts
     return opts.services.media.parse(body.input)
   })
 
-  /** B站封面 CDN 在部分浏览器/WebView 中会被拦截，改由本地核心代取并缓存。 */
+/** 平台封面 CDN 在部分浏览器/WebView 中会被拦截，改由本地核心代取并缓存。 */
   app.get('/api/cover', async (req, reply) => {
     const query = req.query as { url?: unknown }
     const url = coverUrlFromQuery(query.url)
@@ -42,7 +44,9 @@ export const mediaRoutes: FastifyPluginAsync<MediaRoutesDeps> = async (app, opts
       response = await fetch(url, {
         headers: {
           Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          Referer: 'https://www.bilibili.com/',
+          Referer: url.hostname.toLowerCase().endsWith('.xhscdn.com') || url.hostname.toLowerCase() === 'xhscdn.com'
+            ? 'https://www.xiaohongshu.com/'
+            : 'https://www.bilibili.com/',
         },
         signal: AbortSignal.timeout(15_000),
       })

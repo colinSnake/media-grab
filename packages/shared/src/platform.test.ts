@@ -17,6 +17,18 @@ describe('platform input', () => {
     })
   })
 
+  it('将抖音精选页的 modal_id 规范化为视频地址', () => {
+    const result = parseMediaInput('https://www.douyin.com/jingxuan?modal_id=7688917872717942059')
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        platform: 'douyin',
+        raw: 'https://www.douyin.com/video/7688917872717942059',
+        url: 'https://www.douyin.com/video/7688917872717942059',
+      },
+    })
+  })
+
   it('从 Markdown 链接中抽取 B站地址并还原转义参数', () => {
     const result = parseMediaInput('[视频](https://www.bilibili.com/video/BV149jo6nEYB/?t=35.8\\&vd_source=share)')
     expect(result).toEqual({

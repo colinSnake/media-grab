@@ -1,6 +1,7 @@
 # 依赖
 node_modules/
 .pnpm-store/
+.venv/
 
 # 构建产物
 apps/*/dist/
@@ -12,7 +13,7 @@ apps/desktop/src-tauri/bundle/
 .vite/
 
 # 下载产物
-download/
+/download/
 *.mp4
 *.m4s
 *.m4a
@@ -33,6 +34,8 @@ secrets/
 
 # 编辑器 / 系统
 .vscode/
+!.vscode/
+!.vscode/settings.json
 .idea/
 .DS_Store
 *.log

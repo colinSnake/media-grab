@@ -31,7 +31,7 @@ export interface BuildAppOptions {
 }
 
 const NOT_BUILT_HINT =
-  '前端尚未构建：先执行 `pnpm build`；开发时用 `pnpm dev:web`（Vite :5173）配合 `pnpm dev:server`。'
+  '前端尚未构建：先执行 `pnpm build`；开发时用 `pnpm dev:web`（Vite :9067）配合 `pnpm dev:server`。'
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({

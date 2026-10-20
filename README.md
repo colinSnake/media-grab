@@ -27,7 +27,7 @@ mediaGrab 是一个面向 macOS、Windows 和 Linux 的本地媒体工作台：�
 | Core API（目标） | Rust workspace | 平台适配器、下载编排、FFmpeg 进程管理、跨平台分发 |
 | 数据 | SQLite | 配置、解析缓存、任务快照、历史；媒体文件不进数据库 |
 | 媒体处理 | FFmpeg | 合并、remux、音频转码；使用参数数组启动，不经 shell |
-| 平台 extractor | yt-dlp（可选） | 抖音、小红书等平台的格式提取；不把平台私有签名写入产品核心 |
+| 平台 extractor | yt-dlp（开发期项目虚拟环境，发行期随应用封装） | 抖音、小红书等平台的格式提取；不把平台私有签名写入产品核心 |
 | 类型契约 | Zod + shared types | UI / API 的输入输出校验与状态模型 |
 
 Tauri 的选择是产品目标下的工程决策：三端发布、低资源占用、原生文件系统能力和 Rust 生态更适合本地下载器。Electron 仍可作为备选，但不作为当前主线。详见 [技术设计](./docs/TECH-DESIGN.md)。
@@ -43,7 +43,7 @@ mediaGrab/
 ├─ packages/
 │  ├─ shared/              API、任务、媒体和平台无关类型
 │  └─ core-contracts/      目标 Rust core 与 UI 的稳定契约（规划中）
-├─ docs/                   产品、架构、风险和路线图
+├─ docs/                   产品、架构、风险、路线图和开发规范
 └─ data/                   本地运行数据（gitignored）
 ```
 
@@ -59,9 +59,11 @@ pnpm dev:web
 pnpm dev:desktop
 ```
 
-当前迁移期的 Web 入口是 `http://127.0.0.1:8787`。桌面安装包尚未进入仓库，按 [ROADMAP](./docs/ROADMAP.md) 的 D1 里程碑接入。
+当前迁移期的 Web 入口是 `http://127.0.0.1:9070`。桌面安装包尚未进入仓库，按 [ROADMAP](./docs/ROADMAP.md) 的 D1 里程碑接入。
 
-网页版开发入口是 `http://localhost:5173`：先运行 `pnpm dev:server`，再运行 `pnpm dev:web`。生产构建后由本地核心服务直接托管，访问 `http://127.0.0.1:8787` 即可。
+工程结构、模块职责、下载队列/历史记录模型和文件拆分规则见 [项目结构与开发规范](./docs/项目结构与开发规范.md)。
+
+网页版开发入口是 `http://localhost:9067`：先运行 `pnpm dev:server`，再运行 `pnpm dev:web`。生产构建后由本地核心服务直接托管，访问 `http://127.0.0.1:9070` 即可。
 
 ### 账号与画质
 
@@ -71,13 +73,19 @@ pnpm dev:desktop
 
 `pnpm dev:desktop` 会启动 Tauri 窗口、Vite UI 和本地 Node core。当前安装包已经能生成 macOS `.app` / `.dmg`，但发行版还需要 D2 把 Node core、FFmpeg 和 yt-dlp 一并封装，避免用户手动安装运行时。
 
-抖音和小红书 adapter 通过可选的 `yt-dlp` 可执行文件工作。未安装命令行入口但 Python module 可用时，mediaGrab 会自动尝试 `python3 -m yt_dlp`。未安装时，B 站功能不受影响；对应平台会返回明确的 extractor 缺失提示。可以通过 `ytDlpPath` 配置自定义路径。
+抖音和小红书 adapter 依赖 `yt-dlp`；B 站功能不依赖它。mediaGrab 会按“设置中的 `ytDlpPath` → 项目 `.venv` → 系统 PATH → `python3 -m yt_dlp`”的顺序查找。项目 `.venv` 被 gitignore，不会提交到仓库；发行版应将对应平台的 extractor 随应用封装，不能要求用户手动安装 Python。
 
 开发环境如需启用这两个平台：
 
 ```bash
-python3 -m pip install -U yt-dlp
-yt-dlp --version
+pnpm setup:ytdlp
+```
+
+也可以检查版本：
+
+```bash
+.venv/bin/yt-dlp --version       # macOS / Linux
+.venv/Scripts/yt-dlp.exe --version  # Windows
 ```
 
 桌面发行版阶段会把 extractor 纳入应用运行时，不要求用户单独配置 Python。

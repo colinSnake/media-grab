@@ -30,6 +30,10 @@ export const taskSnapshotSchema = z.object({
   cid: z.number().int(),
   qn: z.number().int().positive().optional(),
   streamId: z.string().min(1).optional(),
+  /** 用户选择的清晰度/资源标签，供队列与历史记录展示。 */
+  qualityLabel: z.string().min(1).optional(),
+  /** 来源 + 输出配置的稳定去重键。旧任务没有此字段时由 taskDedupeKey 回退计算。 */
+  dedupeKey: z.string().min(1).optional(),
   title: z.string().default(''),
   status: taskStatusSchema,
   phase: taskPhaseSchema,
@@ -48,6 +52,22 @@ export const taskSnapshotSchema = z.object({
   updatedAt: z.number().int(),
 })
 export type TaskSnapshot = z.infer<typeof taskSnapshotSchema>
+
+/**
+ * 同一来源只有在输出配置也相同的情况下才算重复。
+ * qn/streamId 被刻意纳入，避免不同分辨率的下载互相覆盖。
+ */
+export function taskDedupeKey(task: Pick<TaskSnapshot, 'platform' | 'sourceId' | 'input' | 'bvid' | 'cid' | 'qn' | 'streamId' | 'mode' | 'audioContainer'>): string {
+  return JSON.stringify([
+    task.platform,
+    task.sourceId || task.bvid || task.input.trim(),
+    task.cid || 0,
+    task.mode === 'audio' ? null : task.qn ?? null,
+    task.platform === 'bilibili' ? null : task.streamId ?? null,
+    task.mode,
+    task.mode === 'audio' ? task.audioContainer ?? 'm4a' : null,
+  ])
+}
 
 /** 总体进度 0–1；总大小未知时返回 0，调用方应显示为不确定进度 */
 export function taskProgress(task: Pick<TaskSnapshot, 'totalBytes' | 'downloadedBytes'>): number {
@@ -71,6 +91,7 @@ export const createTaskRequestSchema = z.object({
   /** 视频档位；mode=audio 时可省略 */
   qn: z.number().int().positive().optional(),
   streamId: z.string().min(1).optional(),
+  qualityLabel: z.string().min(1).optional(),
   mode: downloadModeSchema.default('video+audio'),
   /** 仅 mode=audio 生效 */
   audioContainer: audioContainerSchema.optional(),
@@ -81,6 +102,12 @@ export const createTaskRequestSchema = z.object({
   }
 })
 export type CreateTaskRequest = z.infer<typeof createTaskRequestSchema>
+
+export const createTaskResponseSchema = z.object({
+  task: taskSnapshotSchema,
+  deduplicated: z.boolean(),
+})
+export type CreateTaskResponse = z.infer<typeof createTaskResponseSchema>
 
 /** WebSocket 推送消息（/api/ws），前后端共用同一个判别联合类型 */
 export const wsMessageSchema = z.discriminatedUnion('type', [

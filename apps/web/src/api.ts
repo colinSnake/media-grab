@@ -4,6 +4,7 @@ import type {
   AccountSummary,
   AppConfigPatch,
   CreateTaskRequest,
+  CreateTaskResponse,
   HealthResponse,
   MediaParseResult,
   ParseResult,
@@ -17,8 +18,8 @@ export function getAccounts(): Promise<AccountListResponse> {
   return request<AccountListResponse>('/api/accounts')
 }
 
-export function importBiliAccount(label: string, cookie: string): Promise<AccountSummary> {
-  return request<AccountSummary>('/api/accounts/bilibili', { method: 'POST', body: JSON.stringify({ label, cookie }) })
+export function importBiliAccount(cookie: string): Promise<AccountSummary> {
+  return request<AccountSummary>('/api/accounts/bilibili', { method: 'POST', body: JSON.stringify({ cookie }) })
 }
 
 export function activateAccount(id: string): Promise<AccountSummary> {
@@ -45,7 +46,7 @@ function apiBase(): string {
   const configured = (globalThis as { __MEDIAGRAB_CORE_URL__?: unknown }).__MEDIAGRAB_CORE_URL__
   if (typeof configured === 'string' && configured.trim() !== '') return configured.replace(/\/$/, '')
   if (typeof window !== 'undefined' && !['http:', 'https:'].includes(window.location.protocol)) {
-    return 'http://127.0.0.1:8787'
+    return 'http://127.0.0.1:9070'
   }
   return ''
 }
@@ -58,7 +59,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       ...init,
     })
   } catch {
-    throw new Error('本地核心未连接，请先启动 MediaGrab 核心服务（默认端口 8787）。')
+    throw new Error('本地核心未连接，请先启动 MediaGrab 核心服务（默认端口 9070）。')
   }
   const text = await response.text()
 
@@ -118,8 +119,8 @@ export function getExtractorStatus(): Promise<ExtractorStatus> {
   return request<ExtractorStatus>('/api/extractor/check')
 }
 
-export function createTask(payload: CreateTaskRequest): Promise<TaskSnapshot> {
-  return request<TaskSnapshot>('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
+export function createTask(payload: CreateTaskRequest): Promise<CreateTaskResponse> {
+  return request<CreateTaskResponse>('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export function cancelTask(id: string): Promise<TaskSnapshot> {

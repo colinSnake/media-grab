@@ -56,6 +56,8 @@ export type MediaInputResult = { ok: true; value: MediaInput } | { ok: false; re
 
 interface UrlLike {
   hostname: string
+  pathname: string
+  searchParams: { get(name: string): string | null }
   toString(): string
 }
 
@@ -86,6 +88,16 @@ function isHost(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`)
 }
 
+/** 抖音网页版精选页通过 modal_id 指向视频，yt-dlp 需要标准 /video/{id} 入口。 */
+function normalizeDouyinUrl(url: UrlLike): string | undefined {
+  const host = url.hostname.toLowerCase()
+  if (!isHost(host, 'douyin.com')) return undefined
+  if (url.pathname !== '/jingxuan') return url.toString()
+  const modalId = url.searchParams.get('modal_id')
+  if (!modalId || !/^\d+$/.test(modalId)) return url.toString()
+  return `https://www.douyin.com/video/${modalId}`
+}
+
 export function detectPlatform(raw: string): Platform {
   const candidate = embeddedUrl(raw)
   const bili = parseBiliInput(candidate)
@@ -110,7 +122,7 @@ export function parseMediaInput(raw: string): MediaInputResult {
   if (url !== undefined) {
     const host = url.hostname.toLowerCase()
     if (isHost(host, 'douyin.com') || isHost(host, 'iesdouyin.com')) {
-      return { ok: true, value: { platform: 'douyin', raw: candidate, url: url.toString() } }
+      return { ok: true, value: { platform: 'douyin', raw: normalizeDouyinUrl(url) ?? candidate, url: normalizeDouyinUrl(url) ?? url.toString() } }
     }
     if (isHost(host, 'xiaohongshu.com') || isHost(host, 'xhslink.com')) {
       return { ok: true, value: { platform: 'xiaohongshu', raw: candidate, url: url.toString() } }

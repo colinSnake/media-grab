@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default mediaGrab desktop permissions",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }
