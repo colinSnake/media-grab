@@ -131,13 +131,18 @@ export class MediaRegistry {
   #adapters = new Map<Exclude<Platform, 'unknown'>, MediaAdapter>()
   #config: ConfigStore
   #ytDlpAdapters: YtDlpAdapter[] = []
+  #cookieProviders: Record<'douyin' | 'xiaohongshu', () => string | undefined>
 
-  constructor(options: { bili: BiliClient; config: ConfigStore; logger?: Logger }) {
+  constructor(options: { bili: BiliClient; config: ConfigStore; logger?: Logger; cookieProviders?: Partial<Record<'douyin' | 'xiaohongshu', () => string | undefined>> }) {
     this.#config = options.config
+    this.#cookieProviders = {
+      douyin: options.cookieProviders?.douyin ?? (() => undefined),
+      xiaohongshu: options.cookieProviders?.xiaohongshu ?? (() => undefined),
+    }
     this.register(new BilibiliMediaAdapter(options.bili))
     const executable = options.config.get().ytDlpPath
-    const douyin = new YtDlpAdapter({ platform: 'douyin', executable, cookieBrowser: options.config.get().douyinCookieBrowser, logger: options.logger })
-    const xiaohongshu = new YtDlpAdapter({ platform: 'xiaohongshu', executable, logger: options.logger })
+    const douyin = new YtDlpAdapter({ platform: 'douyin', executable, cookieProvider: this.#cookieProviders.douyin, logger: options.logger })
+    const xiaohongshu = new YtDlpAdapter({ platform: 'xiaohongshu', executable, cookieProvider: this.#cookieProviders.xiaohongshu, logger: options.logger })
     this.#ytDlpAdapters = [douyin, xiaohongshu]
     this.register(douyin)
     this.register(xiaohongshu)
@@ -162,7 +167,7 @@ export class MediaRegistry {
     const executable = this.#config.get().ytDlpPath
     for (const ytdlp of this.#ytDlpAdapters) {
       ytdlp.setExecutable(executable)
-      ytdlp.setCookieBrowser(ytdlp.platform === 'douyin' ? this.#config.get().douyinCookieBrowser : '')
+      ytdlp.setCookieProvider(this.#cookieProviders[ytdlp.platform])
     }
     return adapter.parse(detected.value.raw)
   }

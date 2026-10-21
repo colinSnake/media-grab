@@ -7,7 +7,7 @@ import {
   playurlResultSchema,
 } from '@mediagrab/shared'
 import type { FastifyInstance } from 'fastify'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildApp } from '../app.js'
 import { BiliRateLimiter } from '../lib/token-bucket.js'
 import { createServices, type Services } from '../services.js'
@@ -327,6 +327,19 @@ describe('配置落库（M1-6 / NFR-10）', () => {
     })
   })
 
+  it('PATCH /api/config 后立即通知下载队列重新调度', async () => {
+    const { app: instance, services: svc } = await setup()
+    const configChanged = vi.spyOn(svc.downloads, 'configChanged')
+    const patched = await instance.inject({
+      method: 'PATCH',
+      url: '/api/config',
+      payload: { downloadPoolSize: 4 },
+    })
+
+    expect(patched.statusCode).toBe(200)
+    expect(configChanged).toHaveBeenCalledOnce()
+  })
+
   it('未知配置项被明确拒绝，不允许"改了没反应"', async () => {
     const { app: instance } = await setup()
     const response = await instance.inject({
@@ -336,5 +349,39 @@ describe('配置落库（M1-6 / NFR-10）', () => {
     })
     expect(response.statusCode).toBe(400)
     expect(response.json()).toMatchObject({ error: { code: 'UNKNOWN_CONFIG_FIELD' } })
+  })
+})
+
+describe('抖音 Cookie API', () => {
+  it('只返回是否已配置，不在响应中回显 Cookie', async () => {
+    const { app: instance } = await setup()
+    const saved = await instance.inject({
+      method: 'POST',
+      url: '/api/accounts/douyin/cookie',
+      payload: { cookie: 'sessionid=do-not-return-this' },
+    })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.body).not.toContain('do-not-return-this')
+
+    const status = await instance.inject({ method: 'GET', url: '/api/accounts/douyin/cookie' })
+    expect(status.json()).toEqual({ configured: true })
+
+    const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/douyin/cookie' })
+    expect(cleared.json()).toEqual({ configured: false })
+  })
+
+  it('小红书 Cookie API 仅回传配置状态', async () => {
+    const { app: instance } = await setup()
+    const saved = await instance.inject({
+      method: 'POST',
+      url: '/api/accounts/xiaohongshu/cookie',
+      payload: { cookie: 'web_session=do-not-return-this' },
+    })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.body).not.toContain('do-not-return-this')
+    const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/xiaohongshu/cookie' })
+    expect(cleared.json()).toEqual({ configured: false })
   })
 })

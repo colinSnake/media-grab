@@ -9,6 +9,8 @@ import type {
   MediaParseResult,
   ParseResult,
   TaskSnapshot,
+  DouyinCookieStatus,
+  XiaohongshuCookieStatus,
 } from '@mediagrab/shared'
 
 /** M1 起 /api/health 的响应类型由 shared 提供，前后端共用同一份定义（NFR-07） */
@@ -32,6 +34,30 @@ export function verifyAccount(id: string): Promise<AccountSummary> {
 
 export function removeAccount(id: string): Promise<void> {
   return request<void>(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function getDouyinCookieStatus(): Promise<DouyinCookieStatus> {
+  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie')
+}
+
+export function saveDouyinCookie(cookie: string): Promise<DouyinCookieStatus> {
+  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie', { method: 'POST', body: JSON.stringify({ cookie }) })
+}
+
+export function clearDouyinCookie(): Promise<DouyinCookieStatus> {
+  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie', { method: 'DELETE' })
+}
+
+export function getXiaohongshuCookieStatus(): Promise<XiaohongshuCookieStatus> {
+  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie')
+}
+
+export function saveXiaohongshuCookie(cookie: string): Promise<XiaohongshuCookieStatus> {
+  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie', { method: 'POST', body: JSON.stringify({ cookie }) })
+}
+
+export function clearXiaohongshuCookie(): Promise<XiaohongshuCookieStatus> {
+  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie', { method: 'DELETE' })
 }
 
 function readErrorMessage(data: unknown): string | undefined {

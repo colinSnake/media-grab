@@ -103,7 +103,15 @@ export function createServices(options: CreateServicesOptions): Services {
 
   const bili = new BiliClient({ http, wbi, fingerprint, sessionProvider: () => accountService.session(), logger })
   const platforms = new PlatformRegistry(bili)
-  const media = new MediaRegistry({ bili, config, logger })
+  const media = new MediaRegistry({
+    bili,
+    config,
+    logger,
+    cookieProviders: {
+      douyin: () => accountService.douyinCookie(),
+      xiaohongshu: () => accountService.xiaohongshuCookie(),
+    },
+  })
   const downloads = new TaskService({
     repo: tasks,
     bili,

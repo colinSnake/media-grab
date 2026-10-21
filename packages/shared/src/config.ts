@@ -30,9 +30,6 @@ export type DownloadMode = z.infer<typeof downloadModeSchema>
 export const audioContainerSchema = z.enum(['m4a', 'mp3'])
 export type AudioContainer = z.infer<typeof audioContainerSchema>
 
-export const browserCookieSourceSchema = z.enum(['', 'brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale'])
-export type BrowserCookieSource = z.infer<typeof browserCookieSourceSchema>
-
 /**
  * 应用配置。
  *
@@ -47,8 +44,6 @@ export const appConfigSchema = z.object({
   ffmpegPath: z.string().default(''),
   /** yt-dlp executable; empty means search PATH */
   ytDlpPath: z.string().default(''),
-  /** Optional browser profile whose cookies yt-dlp uses for Douyin extraction */
-  douyinCookieBrowser: browserCookieSourceSchema.default(''),
   /** 新建任务时的默认下载模式（页面上仍可临时切换） */
   defaultDownloadMode: downloadModeSchema.default('video+audio'),
   /** 音频容器：仅 mode=audio 时生效 */

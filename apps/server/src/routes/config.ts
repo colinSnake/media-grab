@@ -5,6 +5,7 @@ import type { ConfigStore } from '../lib/config-store.js'
 
 export interface ConfigDeps {
   store: ConfigStore
+  onConfigChanged?: () => void
 }
 
 export const configRoutes: FastifyPluginAsync<ConfigDeps> = async (app, opts) => {
@@ -12,7 +13,9 @@ export const configRoutes: FastifyPluginAsync<ConfigDeps> = async (app, opts) =>
 
   app.patch('/api/config', async (req) => {
     try {
-      return opts.store.patch(req.body ?? {})
+      const config = opts.store.patch(req.body ?? {})
+      opts.onConfigChanged?.()
+      return config
     } catch (err) {
       if (err instanceof ApiError) throw err
       throw new ApiError('INVALID_CONFIG', describeValidationError(err), 'invalid', 400)

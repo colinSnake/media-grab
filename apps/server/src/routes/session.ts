@@ -1,4 +1,4 @@
-import { accountIdParamsSchema, biliAccountImportSchema } from '@mediagrab/shared'
+import { accountIdParamsSchema, biliAccountImportSchema, douyinCookieSchema } from '@mediagrab/shared'
 import type { FastifyPluginAsync } from 'fastify'
 import type { Services } from '../services.js'
 import { parseBody } from '../lib/validate.js'
@@ -41,6 +41,32 @@ export const sessionRoutes: FastifyPluginAsync<SessionRoutesDeps> = async (app, 
   })
 
   app.get('/api/accounts', async () => ({ accounts: opts.services.accountService.list() }))
+
+  app.get('/api/accounts/douyin/cookie', async () => ({ configured: opts.services.accountService.douyinCookieConfigured() }))
+
+  app.post('/api/accounts/douyin/cookie', async (req) => {
+    const body = parseBody(douyinCookieSchema, req.body)
+    opts.services.accountService.saveDouyinCookie(body.cookie)
+    return { configured: true }
+  })
+
+  app.delete('/api/accounts/douyin/cookie', async () => {
+    opts.services.accountService.clearDouyinCookie()
+    return { configured: false }
+  })
+
+  app.get('/api/accounts/xiaohongshu/cookie', async () => ({ configured: opts.services.accountService.xiaohongshuCookieConfigured() }))
+
+  app.post('/api/accounts/xiaohongshu/cookie', async (req) => {
+    const body = parseBody(douyinCookieSchema, req.body)
+    opts.services.accountService.saveXiaohongshuCookie(body.cookie)
+    return { configured: true }
+  })
+
+  app.delete('/api/accounts/xiaohongshu/cookie', async () => {
+    opts.services.accountService.clearXiaohongshuCookie()
+    return { configured: false }
+  })
 
   app.post('/api/accounts/bilibili', async (req) => {
     const body = parseBody(biliAccountImportSchema, req.body)

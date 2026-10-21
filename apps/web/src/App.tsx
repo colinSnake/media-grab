@@ -32,13 +32,14 @@ import type {
   TaskSnapshot,
 } from '@mediagrab/shared'
 import { taskDedupeKey } from '@mediagrab/shared'
-import { activateAccount, cancelTask, createTask, getAccounts, getConfig, getExtractorStatus, getHealth, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
+import { activateAccount, cancelTask, clearDouyinCookie, clearXiaohongshuCookie, createTask, getAccounts, getConfig, getDouyinCookieStatus, getExtractorStatus, getHealth, getTasks, getXiaohongshuCookieStatus, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveDouyinCookie, saveXiaohongshuCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo.svg'
 import { TaskRow } from './components/TaskRow'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
 import { isTerminalTask } from './components/TaskRow'
 import { SettingsModal } from './components/SettingsModal'
 import { MediaPreview } from './components/MediaPreview'
+import { PlatformLogo } from './components/PlatformLogo'
 import { modeOptions } from './lib/options'
 
 type Platform = '全部' | 'B站' | '抖音' | '小红书'
@@ -126,6 +127,12 @@ function App() {
   const [activeAccountPlatform, setActiveAccountPlatform] = useState<AccountPlatform>('bilibili')
   const [accountCookie, setAccountCookie] = useState('')
   const [isSavingAccount, setIsSavingAccount] = useState(false)
+  const [douyinCookie, setDouyinCookie] = useState('')
+  const [douyinCookieConfigured, setDouyinCookieConfigured] = useState(false)
+  const [isSavingDouyinCookie, setIsSavingDouyinCookie] = useState(false)
+  const [xiaohongshuCookie, setXiaohongshuCookie] = useState('')
+  const [xiaohongshuCookieConfigured, setXiaohongshuCookieConfigured] = useState(false)
+  const [isSavingXiaohongshuCookie, setIsSavingXiaohongshuCookie] = useState(false)
 
   useLayoutEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -161,16 +168,17 @@ function App() {
   }
 
   useEffect(() => {
-    void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts()])
-      .then(([healthData, configData, extractorData, accountData]) => {
+    void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts(), getDouyinCookieStatus(), getXiaohongshuCookieStatus()])
+      .then(([healthData, configData, extractorData, accountData, douyinCookieData, xhsCookieData]) => {
         setHealth(healthData)
         setExtractor(extractorData)
         setAccounts(accountData.accounts)
+        setDouyinCookieConfigured(douyinCookieData.configured)
+        setXiaohongshuCookieConfigured(xhsCookieData.configured)
         setConfig(configData)
         setDraft({
           savePath: configData.savePath,
           ytDlpPath: configData.ytDlpPath,
-          douyinCookieBrowser: configData.douyinCookieBrowser,
           defaultDownloadMode: configData.defaultDownloadMode,
           audioContainer: configData.audioContainer,
         })
@@ -382,6 +390,56 @@ function App() {
     }
   }
 
+  async function saveDouyinCookieValue() {
+    setIsSavingDouyinCookie(true)
+    try {
+      const result = await saveDouyinCookie(douyinCookie)
+      setDouyinCookieConfigured(result.configured)
+      setDouyinCookie('')
+      setNotice({ kind: 'success', text: '抖音 Cookie 已加密保存。' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '抖音 Cookie 保存失败。' })
+    } finally {
+      setIsSavingDouyinCookie(false)
+    }
+  }
+
+  async function clearDouyinCookieValue() {
+    try {
+      const result = await clearDouyinCookie()
+      setDouyinCookieConfigured(result.configured)
+      setDouyinCookie('')
+      setNotice({ kind: 'success', text: '抖音 Cookie 已清除。' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '抖音 Cookie 清除失败。' })
+    }
+  }
+
+  async function saveXiaohongshuCookieValue() {
+    setIsSavingXiaohongshuCookie(true)
+    try {
+      const result = await saveXiaohongshuCookie(xiaohongshuCookie)
+      setXiaohongshuCookieConfigured(result.configured)
+      setXiaohongshuCookie('')
+      setNotice({ kind: 'success', text: '小红书 Cookie 已加密保存。' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '小红书 Cookie 保存失败。' })
+    } finally {
+      setIsSavingXiaohongshuCookie(false)
+    }
+  }
+
+  async function clearXiaohongshuCookieValue() {
+    try {
+      const result = await clearXiaohongshuCookie()
+      setXiaohongshuCookieConfigured(result.configured)
+      setXiaohongshuCookie('')
+      setNotice({ kind: 'success', text: '小红书 Cookie 已清除。' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '小红书 Cookie 清除失败。' })
+    }
+  }
+
   async function activateBiliAccount(id: string) {
     try {
       const account = await activateAccount(id)
@@ -432,7 +490,7 @@ function App() {
         <nav className="source-nav" aria-label="平台筛选">
           {platformOptions.slice(1).map((platform) => (
             <button key={platform.label} type="button" className={`source-item ${platform.tone} ${activePlatform === platform.label ? 'selected' : ''}`} onClick={() => setActivePlatform(platform.label)}>
-              <span className="source-mark">{platform.label === 'B站' ? 'B' : platform.label === '抖音' ? '♪' : '红'}</span>
+              <span className="source-mark"><PlatformLogo platform={platform.tone === 'bili' ? 'bilibili' : platform.tone === 'douyin' ? 'douyin' : 'xiaohongshu'} /></span>
               <span>{platform.label}</span>
               <span className={`source-state ${platform.label === 'B站' || extractor?.available ? 'ready' : ''}`} />
             </button>
@@ -475,11 +533,14 @@ function App() {
 
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
-            <div>
+            <div className="hero-copy">
               <h1>把喜欢的内容，<span>带回本地。</span></h1>
-              <p>粘贴视频或分享链接，MediaGrab 为你整理可用的媒体资源。</p>
             </div>
-            <div className="hero-art" aria-hidden="true"><div className="art-ring ring-one" /><div className="art-ring ring-two" /><div className="art-core"><ArrowDownToLine /></div></div>
+            <div className="hero-platforms" aria-label="支持的平台">
+              <span className="hero-platform bilibili"><PlatformLogo platform="bilibili" /><span>B站</span></span>
+              <span className="hero-platform douyin"><PlatformLogo platform="douyin" /><span>抖音</span></span>
+              <span className="hero-platform xiaohongshu"><PlatformLogo platform="xiaohongshu" /><span>小红书</span></span>
+            </div>
           </div>
           <div className="input-row">
             <div className="url-input-wrap">
@@ -488,7 +549,7 @@ function App() {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => { if (event.key === 'Enter') void handleParse() }}
-                placeholder="粘贴 B站、抖音或小红书链接"
+                placeholder="粘贴媒体链接或分享链接"
                 aria-label="媒体链接"
               />
               {detectedPlatform !== null && <span className={`detected-badge ${detectedPlatform === 'B站' ? 'bili' : detectedPlatform === '抖音' ? 'douyin' : 'rednote'}`}>{detectedPlatform}</span>}
@@ -499,6 +560,7 @@ function App() {
               {!isParsing && <ArrowRight className="button-trailing" />}
             </button>
           </div>
+          <div className="hero-footer"><span><Link2 /> 一条链接，开始解析</span><span className="hero-footer-accent">本地处理 · 文件留在你的设备</span></div>
           {notice !== null && <div className={`notice ${notice.kind}`} role="status"><span>{notice.kind === 'error' ? <X /> : notice.kind === 'success' ? <Check /> : <Activity />}</span>{notice.text}</div>}
         </section>}
 
@@ -569,6 +631,18 @@ function App() {
         onActivateAccount={(id) => void activateBiliAccount(id)}
         onVerifyAccount={(id) => void verifyBiliAccount(id)}
         onDeleteAccount={(id) => void deleteBiliAccount(id)}
+        douyinCookieConfigured={douyinCookieConfigured}
+        douyinCookie={douyinCookie}
+        isSavingDouyinCookie={isSavingDouyinCookie}
+        onDouyinCookieChange={setDouyinCookie}
+        onSaveDouyinCookie={() => void saveDouyinCookieValue()}
+        onClearDouyinCookie={() => void clearDouyinCookieValue()}
+        xiaohongshuCookieConfigured={xiaohongshuCookieConfigured}
+        xiaohongshuCookie={xiaohongshuCookie}
+        isSavingXiaohongshuCookie={isSavingXiaohongshuCookie}
+        onXiaohongshuCookieChange={setXiaohongshuCookie}
+        onSaveXiaohongshuCookie={() => void saveXiaohongshuCookieValue()}
+        onClearXiaohongshuCookie={() => void clearXiaohongshuCookieValue()}
       />
     </div>
   )

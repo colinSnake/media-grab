@@ -73,7 +73,9 @@ pnpm dev:desktop
 
 `pnpm dev:desktop` 会启动 Tauri 窗口、Vite UI 和本地 Node core。当前安装包已经能生成 macOS `.app` / `.dmg`，但发行版还需要 D2 把 Node core、FFmpeg 和 yt-dlp 一并封装，避免用户手动安装运行时。
 
-抖音和小红书 adapter 依赖 `yt-dlp`；B 站功能不依赖它。mediaGrab 会按“设置中的 `ytDlpPath` → 项目 `.venv` → 系统 PATH → `python3 -m yt_dlp`”的顺序查找。项目 `.venv` 被 gitignore，不会提交到仓库；发行版应将对应平台的 extractor 随应用封装，不能要求用户手动安装 Python。
+桌面开发启动时会自动清理本项目遗留的 `9067`（Vite）和 `9070`（Node core）进程；如果端口被其他程序占用，会保留该程序并直接提示。也可以单独执行 `pnpm dev:desktop:clean` 清理本项目的开发进程。
+
+抖音和小红书 adapter 依赖 `yt-dlp`；B 站功能不依赖它。mediaGrab 会按“设置中的 `ytDlpPath` → 项目 `.venv` → 系统 PATH → `python3 -m yt_dlp`”的顺序查找。抖音和小红书 Cookie 均可在设置中粘贴保存；Cookie 会加密保存在本机，解析时只写入短生命周期临时文件。项目 `.venv` 被 gitignore，不会提交到仓库；发行版应将对应平台的 extractor 随应用封装，不能要求用户手动安装 Python。
 
 开发环境如需启用这两个平台：
 

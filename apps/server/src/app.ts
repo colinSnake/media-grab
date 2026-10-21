@@ -68,7 +68,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(healthRoutes, { store: services.config, services, webDist, startedAt })
   await app.register(fastifyWebsocket)
-  await app.register(configRoutes, { store: services.config })
+  await app.register(configRoutes, { store: services.config, onConfigChanged: () => services.downloads.configChanged() })
   await app.register(biliRoutes, { services })
   await app.register(sessionRoutes, { services })
   await app.register(taskRoutes, { services })

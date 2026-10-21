@@ -261,6 +261,11 @@ export class TaskService {
     return checkFfmpeg(this.#config.get().ffmpegPath)
   }
 
+  /** Re-evaluate queued work after a runtime setting change such as downloadPoolSize. */
+  configChanged(): void {
+    this.pump()
+  }
+
   recoverInterrupted(): void {
     for (const task of this.#repo.list()) {
       if (task.status === 'waiting' || task.status === 'downloading' || task.status === 'merging') {

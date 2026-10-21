@@ -35,6 +35,30 @@ function setup(response: unknown) {
 }
 
 describe('AccountService', () => {
+  it('保存和清除抖音 Cookie 时只暴露配置状态', () => {
+    const { db, service } = setup(NAV_LOGGED_IN)
+    expect(service.douyinCookieConfigured()).toBe(false)
+    service.saveDouyinCookie('sessionid=secret')
+    expect(service.douyinCookieConfigured()).toBe(true)
+    expect(service.douyinCookie()).toContain('sessionid')
+    service.clearDouyinCookie()
+    expect(service.douyinCookieConfigured()).toBe(false)
+    expect(service.douyinCookie()).toBeUndefined()
+    db.close()
+  })
+
+  it('保存和清除小红书 Cookie 时只暴露配置状态', () => {
+    const { db, service } = setup(NAV_LOGGED_IN)
+    expect(service.xiaohongshuCookieConfigured()).toBe(false)
+    service.saveXiaohongshuCookie('web_session=secret')
+    expect(service.xiaohongshuCookieConfigured()).toBe(true)
+    expect(service.xiaohongshuCookie()).toContain('web_session')
+    service.clearXiaohongshuCookie()
+    expect(service.xiaohongshuCookieConfigured()).toBe(false)
+    expect(service.xiaohongshuCookie()).toBeUndefined()
+    db.close()
+  })
+
   it('导入并验证成功，只返回脱敏账号摘要且请求合并设备 Cookie', async () => {
     const { db, fake, service } = setup(NAV_LOGGED_IN)
     const result = await service.importBili('我的 B站', 'SESSDATA=secret; bili_jct=csrf; ignored=x')

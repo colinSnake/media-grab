@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { access, readFile } from 'node:fs/promises'
 import { resolveProjectYtDlp, YtDlpAdapter } from './ytdlp.js'
 
 describe('YtDlpAdapter', () => {
@@ -78,19 +79,6 @@ describe('YtDlpAdapter', () => {
     })
   })
 
-  it('把浏览器 Cookie 数据库不可读映射为明确的本地权限错误', async () => {
-    const adapter = new YtDlpAdapter({
-      platform: 'douyin',
-      cookieBrowser: 'chrome',
-      exec: async () => { throw new Error('Command failed: ERROR: could not find chrome cookies database in "/Users/test/Library/Application Support/Google/Chrome"') },
-    })
-    await expect(adapter.parse('https://v.douyin.com/example/')).rejects.toMatchObject({
-      code: 'BROWSER_COOKIE_UNAVAILABLE',
-      httpStatus: 403,
-      kind: 'permission',
-    })
-  })
-
   it('清理 stdout 前后的诊断文本后仍能读取 JSON', async () => {
     const adapter = new YtDlpAdapter({
       platform: 'douyin',
@@ -104,35 +92,45 @@ describe('YtDlpAdapter', () => {
     expect(result.capabilities.download).toBe(false)
   })
 
-  it('仅在抖音显式配置时向 yt-dlp 传递浏览器 Cookie 来源', async () => {
-    let capturedArgs: readonly string[] = []
+  it('把抖音 Cookie 写入临时 Netscape 文件并在执行后清理', async () => {
+    let cookiePath = ''
+    let cookieContents = ''
     const adapter = new YtDlpAdapter({
       platform: 'douyin',
-      cookieBrowser: 'chrome',
+      cookieProvider: () => '# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\tsessionid\tsecret\n',
       exec: async (_file, args) => {
-        capturedArgs = args
+        const index = args.indexOf('--cookies')
+        cookiePath = String(args[index + 1])
+        cookieContents = await readFile(cookiePath, 'utf8')
         return { stdout: JSON.stringify({ id: 'x', formats: [] }), stderr: '' }
       },
     })
 
     await adapter.parse('https://www.douyin.com/video/123')
-
-    expect(capturedArgs).toContain('--cookies-from-browser')
-    expect(capturedArgs).toContain('chrome')
+    expect(cookieContents).toContain('sessionid\tsecret')
+    expect(cookiePath).toContain('mediagrab-ytdlp-')
+    await expect(access(cookiePath)).rejects.toThrow()
   })
 
-  it('默认不向 yt-dlp 请求读取浏览器 Cookie', async () => {
+  it('小红书解析同样使用独立临时 Cookie 文件', async () => {
     let capturedArgs: readonly string[] = []
+    let cookieFileContents = ''
+    let cookiePath = ''
     const adapter = new YtDlpAdapter({
-      platform: 'douyin',
+      platform: 'xiaohongshu',
+      cookieProvider: () => '# Netscape HTTP Cookie File\n.xiaohongshu.com\tTRUE\t/\tFALSE\t0\tweb_session\tsecret\n',
       exec: async (_file, args) => {
         capturedArgs = args
+        const index = args.indexOf('--cookies')
+        cookiePath = String(args[index + 1])
+        cookieFileContents = await readFile(cookiePath, 'utf8')
         return { stdout: JSON.stringify({ id: 'x', formats: [] }), stderr: '' }
       },
     })
 
-    await adapter.parse('https://www.douyin.com/video/123')
-
-    expect(capturedArgs).not.toContain('--cookies-from-browser')
+    await adapter.parse('https://www.xiaohongshu.com/explore/example')
+    expect(capturedArgs).toContain('--cookies')
+    expect(cookieFileContents).toContain('web_session\tsecret')
+    await expect(access(cookiePath)).rejects.toThrow()
   })
 })

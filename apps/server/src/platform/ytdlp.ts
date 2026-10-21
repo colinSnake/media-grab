@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -102,7 +104,7 @@ function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | und
 export interface YtDlpAdapterOptions {
   platform: Exclude<Platform, 'bilibili' | 'unknown'>
   executable?: string
-  cookieBrowser?: string
+  cookieProvider?: () => string | undefined
   logger?: Logger
   exec?: ExecLike
 }
@@ -111,7 +113,7 @@ export class YtDlpAdapter {
   readonly platform: Exclude<Platform, 'bilibili' | 'unknown'>
   #executable: string
   #allowPythonFallback: boolean
-  #cookieBrowser: string
+  #cookieProvider: () => string | undefined
   #logger: Logger
   #exec: ExecLike
 
@@ -119,7 +121,7 @@ export class YtDlpAdapter {
     this.platform = options.platform
     this.#executable = options.executable?.trim() || defaultYtDlpExecutable()
     this.#allowPythonFallback = !options.executable?.trim()
-    this.#cookieBrowser = options.cookieBrowser?.trim() ?? ''
+    this.#cookieProvider = options.cookieProvider ?? (() => undefined)
     this.#logger = options.logger ?? silentLogger
     this.#exec = options.exec ?? (execFileAsync as unknown as ExecLike)
   }
@@ -129,18 +131,31 @@ export class YtDlpAdapter {
     this.#allowPythonFallback = candidate.trim() === ''
   }
 
-  setCookieBrowser(browser = ''): void {
-    this.#cookieBrowser = browser.trim()
+  setCookieProvider(provider: () => string | undefined): void {
+    this.#cookieProvider = provider
   }
 
   private async run(args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
+    let cookieDir: string | undefined
+    let commandArgs = [...args]
     try {
-      return await this.#exec(this.#executable, args, { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
+      const cookieContents = this.#cookieProvider()
+      if (cookieContents !== undefined && cookieContents !== '') {
+        cookieDir = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-ytdlp-'))
+        await chmod(cookieDir, 0o700)
+        const cookiePath = path.join(cookieDir, 'cookies.txt')
+        await writeFile(cookiePath, cookieContents, { mode: 0o600 })
+        await chmod(cookiePath, 0o600)
+        commandArgs = ['--cookies', cookiePath, ...args]
+      }
+      return await this.#exec(this.#executable, commandArgs, { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
     } catch (error) {
       if (!this.#allowPythonFallback || !/not found|enoent|cannot find/i.test(error instanceof Error ? error.message : String(error))) {
         throw error
       }
-      return this.#exec('python3', ['-m', 'yt_dlp', ...args], { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
+      return this.#exec('python3', ['-m', 'yt_dlp', ...commandArgs], { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
+    } finally {
+      if (cookieDir !== undefined) await rm(cookieDir, { recursive: true, force: true })
     }
   }
 
@@ -148,9 +163,6 @@ export class YtDlpAdapter {
     let stdout: string
     try {
       const args = ['--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download']
-      if (this.platform === 'douyin' && this.#cookieBrowser !== '') {
-        args.push('--cookies-from-browser', this.#cookieBrowser)
-      }
       args.push(input)
       const result = await this.run(args)
       stdout = result.stdout
@@ -167,10 +179,8 @@ export class YtDlpAdapter {
         throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
       }
       if (/fresh cookies|cookies.*needed|cookies.*required/i.test(message)) {
-        throw new ApiError('MEDIA_COOKIE_REQUIRED', '抖音需要新鲜的浏览器 Cookie。请在设置中选择曾访问过抖音的浏览器后重试。', 'permission', 403)
-      }
-      if (/could not find .*cookies database|cookies database/i.test(message)) {
-        throw new ApiError('BROWSER_COOKIE_UNAVAILABLE', '无法读取所选浏览器的 Cookie 数据库。请确认浏览器已登录并已完全退出，或授予本地核心读取浏览器数据目录的权限后重试。', 'permission', 403)
+        const label = this.platform === 'douyin' ? '抖音' : '小红书'
+        throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}需要新鲜的 Cookie。请在平台设置中粘贴有效 Cookie后重试。`, 'permission', 403)
       }
       throw new ApiError('EXTRACTOR_FAILED', `${this.platform === 'douyin' ? '抖音' : '小红书'}解析失败：${message}`, 'network', 502)
     }

@@ -6,9 +6,12 @@ import { silentLogger } from '../lib/logger.js'
 import type { BiliHttp } from '../bili/http.js'
 import { AccountRepository, type AccountRecord } from '../store/repositories.js'
 import { CredentialVault } from './credential-vault.js'
+import { normalizeDouyinCookie, normalizeXiaohongshuCookie } from './douyin-cookie.js'
 
 const BILI_NAV_URL = 'https://api.bilibili.com/x/web-interface/nav'
 const COOKIE_NAMES = ['SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid'] as const
+const DOUYIN_COOKIE_ID = 'platform:douyin'
+const XIAOHONGSHU_COOKIE_ID = 'platform:xiaohongshu'
 
 function parseBiliCookie(raw: string): string {
   const values = new Map<string, string>()
@@ -77,6 +80,38 @@ export class AccountService {
     return active && active.status === 'active'
       ? { loggedIn: active.loggedIn, vip: active.vip }
       : { loggedIn: false, vip: false }
+  }
+
+  douyinCookieConfigured(): boolean {
+    return this.#vault.get(DOUYIN_COOKIE_ID) !== null
+  }
+
+  saveDouyinCookie(rawCookie: string): void {
+    this.#vault.set(DOUYIN_COOKIE_ID, normalizeDouyinCookie(rawCookie))
+  }
+
+  clearDouyinCookie(): void {
+    this.#vault.delete(DOUYIN_COOKIE_ID)
+  }
+
+  douyinCookie(): string | undefined {
+    return this.#vault.get(DOUYIN_COOKIE_ID) ?? undefined
+  }
+
+  xiaohongshuCookieConfigured(): boolean {
+    return this.#vault.get(XIAOHONGSHU_COOKIE_ID) !== null
+  }
+
+  saveXiaohongshuCookie(rawCookie: string): void {
+    this.#vault.set(XIAOHONGSHU_COOKIE_ID, normalizeXiaohongshuCookie(rawCookie))
+  }
+
+  clearXiaohongshuCookie(): void {
+    this.#vault.delete(XIAOHONGSHU_COOKIE_ID)
+  }
+
+  xiaohongshuCookie(): string | undefined {
+    return this.#vault.get(XIAOHONGSHU_COOKIE_ID) ?? undefined
   }
 
   async importBili(label: string, rawCookie: string): Promise<AccountSummary> {

@@ -1,7 +1,8 @@
-import { Clock3, FileVideo2, Music2, Search, X } from 'lucide-react'
+import { FileVideo2, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { platformLabel, type TaskSnapshot } from '@mediagrab/shared'
-import { isTerminalTask } from './TaskRow'
+import { platformLabel, qualityMeta, type TaskSnapshot } from '@mediagrab/shared'
+import { TaskStatusIndicator } from './TaskRow'
+import { PlatformLogo } from './PlatformLogo'
 
 interface TaskSearchDialogProps {
   open: boolean
@@ -52,9 +53,15 @@ export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchD
         <div className="search-results">
           {results.length === 0 ? <div className="search-empty"><FileVideo2 /><strong>没有匹配的任务</strong><span>试试标题、平台或文件名中的关键词。</span></div> : results.map((task) => (
             <button className="search-result" type="button" key={task.id} onClick={() => onSelect(task)}>
-              <span className={`task-type-icon ${task.mode === 'audio' ? 'audio' : ''}`}>{task.mode === 'audio' ? <Music2 /> : <FileVideo2 />}</span>
-              <span className="task-title"><strong>{task.title || task.bvid || task.input}</strong><small>{platformLabel[task.platform]} · {isTerminalTask(task) ? '历史记录' : '下载队列'}</small></span>
-              <Clock3 className="search-result-arrow" />
+              <span className={`task-platform-icon ${task.platform}`} title={platformLabel[task.platform]}>{task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}</span>
+              <span className="task-title">
+                <strong>{task.title || task.bvid || task.input}</strong>
+                <span className="task-meta">
+                  <span className={`task-mode-tag ${task.mode}`}>{task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</span>
+                  {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag">{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
+                </span>
+              </span>
+              <TaskStatusIndicator status={task.status} />
             </button>
           ))}
         </div>

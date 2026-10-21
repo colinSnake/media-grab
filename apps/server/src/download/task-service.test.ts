@@ -145,6 +145,51 @@ describe('TaskService task identity', () => {
     }
   })
 
+  it('starts queued tasks immediately when the configured pool size increases', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-pool-update-'))
+    const repo = new FakeTaskRepository()
+    let poolSize = 1
+    let notifyStarted!: () => void
+    const bothStarted = new Promise<void>((resolve) => { notifyStarted = resolve })
+    let startedCount = 0
+    let releaseFetches!: () => void
+    const fetchGate = new Promise<void>((resolve) => { releaseFetches = resolve })
+    const media = (input: string): MediaParseResult => ({
+      platform: 'douyin', input, id: input, title: input.endsWith('1') ? 'update-one' : 'update-two',
+      authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'combined', kind: 'video', combined: true, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    })
+    const taskService = new TaskService({
+      repo: repo as never,
+      bili: {} as never,
+      platforms: {} as never,
+      media: { parse: async (input: string) => media(input) } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: poolSize }) } as never,
+      dataDir: root,
+      fetchImpl: (async () => {
+        startedCount += 1
+        if (startedCount === 2) notifyStarted()
+        await fetchGate
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-length': '3' } })
+      }) as typeof fetch,
+    })
+
+    try {
+      const first = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/1', mode: 'video+audio', audioContainer: 'm4a', title: '' })
+      const second = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/2', mode: 'video+audio', audioContainer: 'm4a', title: '' })
+      expect(taskService.get(second.task.id)?.status).toBe('waiting')
+      poolSize = 2
+      taskService.configChanged()
+      await bothStarted
+      expect(startedCount).toBe(2)
+    } finally {
+      releaseFetches()
+      await waitFor(() => repo.list().every((task) => task.status === 'success' || task.status === 'fail'))
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('adds video and audio content lengths to the aggregate progress total', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-progress-'))
     const repo = new FakeTaskRepository()
