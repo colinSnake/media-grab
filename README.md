@@ -4,10 +4,7 @@
   <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="620" valign="middle" alt="MediaGrab" />
 </p>
 
-<br />
-<br />
-
-<br />
+<div style="height: 25px"></div>
 
 > **A local-first media workspace for your desktop.**
 >

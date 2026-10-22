@@ -2,6 +2,7 @@
 node_modules/
 .pnpm-store/
 .venv/
+.release-tools/
 
 # 构建产物
 apps/*/dist/

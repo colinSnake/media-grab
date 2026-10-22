@@ -96,6 +96,42 @@ version output, rejects GPL/nonfree FFmpeg builds, requires `libmp3lame`, and
 copies both notices plus a checksum manifest into the bundle. Each release
 stores the exact source revision, configure flags, checksums, and notices.
 
+## Prepared local tools
+
+The macOS arm64 build host has inputs saved in
+`.release-tools/darwin-arm64/`, outside the temporary directory. This directory
+is ignored by Git. `prepare:release-tools` automatically reads its
+`release-inputs.json`, resolves local paths relative to that directory, and
+uses environment variables as overrides.
+
+The prepared inputs are FFmpeg `9.0.2` (about `7.3 MiB`) and the official
+yt-dlp `2026.10.21` macOS executable (about `35.5 MiB`). The FFmpeg binary
+statically links LAME `3.100` and only depends on macOS system libraries.
+Both license texts, the LAME notice, and yt-dlp bundled dependency notices
+are copied into the app resources. Source archives, build configuration, and
+the upstream yt-dlp checksum list are retained beside the inputs.
+
+The inputs are already staged in
+`apps/desktop/src-tauri/resources/media-tools/darwin-arm64/`. From the repository
+root, verify them without building an installer:
+
+```bash
+pnpm prepare:release-tools
+pnpm verify:desktop-runtime
+```
+
+To prepare the runtime again, verify the tools, and build the installer:
+
+```bash
+pnpm build:desktop:release
+```
+
+These cached binaries target this macOS arm64 host. Other build hosts need
+their own native inputs and checksum manifests. No Windows, Linux, or Intel
+macOS binary was prepared by this step.
+
+## Supplying other tool builds
+
 The final build command is run from the repository root with both tool inputs
 and their license notices configured:
 
@@ -108,6 +144,8 @@ FFMPEG_BIN=/path/to/ffmpeg \
 FFMPEG_VERSION=<pinned-version> \
 FFMPEG_SHA256=<64-character-sha256> \
 FFMPEG_LICENSE_FILE=/path/to/ffmpeg-license.txt \
+LAME_LICENSE_FILE=/path/to/lame-license.txt \
+YT_DLP_THIRD_PARTY_LICENSE_FILE=/path/to/yt-dlp-third-party-licenses.txt \
 pnpm build:desktop:release
 ```
 

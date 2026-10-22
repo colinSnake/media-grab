@@ -69,6 +69,7 @@ await mustBeFile(path.join(toolsDir, `yt-dlp${toolSuffix}`), 'bundled yt-dlp')
 await mustBeFile(path.join(toolsDir, 'ffmpeg-LICENSE.txt'), 'FFmpeg license notice')
 await mustBeFile(path.join(toolsDir, 'lame-LICENSE.txt'), 'LAME license notice')
 await mustBeFile(path.join(toolsDir, 'yt-dlp-LICENSE.txt'), 'yt-dlp license notice')
+await mustBeFile(path.join(toolsDir, 'yt-dlp-THIRD_PARTY_LICENSES.txt'), 'yt-dlp bundled dependency notices')
 await mustBeFile(path.join(toolsDir, 'tools-manifest.json'), 'tool manifest')
 const toolsBytes = await directorySize(toolsDir)
 const toolsLimit = Number(process.env.MEDIA_GRAB_TOOLS_LIMIT_MB ?? 180) * 1024 * 1024
@@ -77,8 +78,8 @@ if (toolsBytes > toolsLimit) {
 }
 
 const [ffmpeg, ytdlp] = await Promise.all([
-  execFileAsync(path.join(toolsDir, `ffmpeg${toolSuffix}`), ['-version'], { timeout: 10_000 }),
-  execFileAsync(path.join(toolsDir, `yt-dlp${toolSuffix}`), ['--version'], { timeout: 10_000 }),
+  execFileAsync(path.join(toolsDir, `ffmpeg${toolSuffix}`), ['-version'], { timeout: 60_000 }),
+  execFileAsync(path.join(toolsDir, `yt-dlp${toolSuffix}`), ['--version'], { timeout: 60_000 }),
 ])
 if (!/^ffmpeg version\s/i.test(ffmpeg.stdout)) throw new Error('内置 FFmpeg 没有返回可识别的版本信息。')
 if (!/^\d+\.\d+(?:\.\d+)?(?:$|\s)/.test(ytdlp.stdout.trim())) throw new Error('内置 yt-dlp 没有返回可识别的版本信息。')

@@ -12,6 +12,18 @@ import { fileURLToPath } from 'node:url'
 const execFileAsync = promisify(execFile)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const target = `${process.platform}-${process.arch}`
+const inputDirectory = path.join(root, '.release-tools', target)
+const inputConfig = path.join(inputDirectory, 'release-inputs.json')
+const savedInputs = await readFile(inputConfig, 'utf8').then(JSON.parse).catch((error) => {
+  if (error.code === 'ENOENT') return {}
+  throw error
+})
+for (const [name, value] of Object.entries(savedInputs)) {
+  if (typeof value !== 'string') throw new Error(`本地工具配置 ${name} 必须为字符串。`)
+  if (!process.env[name]) {
+    process.env[name] = /_(?:BIN|LICENSE_FILE)$/.test(name) ? path.resolve(inputDirectory, value) : value
+  }
+}
 const targetRoot = process.env.MEDIA_TOOLS_OUTPUT_DIR?.trim()
   ? path.resolve(process.env.MEDIA_TOOLS_OUTPUT_DIR)
   : path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'media-tools')
@@ -27,6 +39,7 @@ const ffmpegUrl = process.env.FFMPEG_URL?.trim()
 const ffmpegBin = process.env.FFMPEG_BIN?.trim()
 const ffmpegLicense = process.env.FFMPEG_LICENSE_FILE?.trim()
 const lameLicense = process.env.LAME_LICENSE_FILE?.trim()
+const ytDlpThirdPartyLicense = process.env.YT_DLP_THIRD_PARTY_LICENSE_FILE?.trim()
 const suffix = process.platform === 'win32' ? '.exe' : ''
 const ytDlpName = `yt-dlp${suffix}`
 const ffmpegName = `ffmpeg${suffix}`
@@ -45,6 +58,7 @@ for (const [name, value] of Object.entries({
   FFMPEG_SHA256: ffmpegSha256,
   FFMPEG_LICENSE_FILE: ffmpegLicense,
   LAME_LICENSE_FILE: lameLicense,
+  YT_DLP_THIRD_PARTY_LICENSE_FILE: ytDlpThirdPartyLicense,
 })) required(name, value)
 
 if (!ytDlpUrl && !ytDlpBin) throw new Error('YT_DLP_URL 或 YT_DLP_BIN 必须设置。')
@@ -65,7 +79,7 @@ async function sha256(file) {
 }
 
 async function stageInput(label, url, sourceFile, expectedHash, maxBytes) {
-  const staged = path.join(temporaryDir, label)
+  const staged = path.join(temporaryDir, `${label}${suffix}`)
   if (sourceFile) {
     await copyFile(path.resolve(sourceFile), staged)
   } else {
@@ -85,11 +99,12 @@ async function stageInput(label, url, sourceFile, expectedHash, maxBytes) {
   if (size === 0 || size > maxBytes) throw new Error(`${label} 大小无效: ${(size / 1024 / 1024).toFixed(1)} MiB`)
   const actualHash = await sha256(staged)
   if (actualHash !== expectedHash) throw new Error(`${label} SHA-256 不匹配: ${actualHash}`)
+  if (process.platform !== 'win32') await chmod(staged, 0o755)
   return { path: staged, size, sha256: actualHash }
 }
 
 async function binaryOutput(file, args) {
-  const result = await execFileAsync(file, args, { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 })
+  const result = await execFileAsync(file, args, { timeout: 60_000, maxBuffer: 2 * 1024 * 1024 })
   return `${result.stdout}\n${result.stderr}`
 }
 
@@ -121,6 +136,7 @@ try {
     { source: path.resolve(ytDlpLicense), name: 'yt-dlp-LICENSE.txt' },
     { source: path.resolve(ffmpegLicense), name: 'ffmpeg-LICENSE.txt' },
     { source: path.resolve(lameLicense), name: 'lame-LICENSE.txt' },
+    { source: path.resolve(ytDlpThirdPartyLicense), name: 'yt-dlp-THIRD_PARTY_LICENSES.txt' },
   ]
   for (const license of licenseFiles) {
     const content = await readFile(license.source)
@@ -144,7 +160,7 @@ try {
 
   const manifest = {
     target,
-    ytDlp: { version: ytDlpVersion, sha256: ytDlp.sha256, sizeBytes: ytDlp.size, license: 'Unlicense' },
+    ytDlp: { version: ytDlpVersion, sha256: ytDlp.sha256, sizeBytes: ytDlp.size, license: 'Unlicense source; bundled dependencies have separate licenses; see included notices' },
     ffmpeg: { version: ffmpegVersion, sha256: ffmpeg.sha256, sizeBytes: ffmpeg.size, license: 'LGPL-compatible build; see included notice' },
   }
   await writeFile(path.join(destination, 'tools-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)

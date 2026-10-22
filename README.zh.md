@@ -4,10 +4,7 @@
   <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="620" valign="middle" alt="MediaGrab" />
 </p>
 
-<br />
-<br />
-
-<br />
+<div style="height: 25px"></div>
 
 > **把多平台媒体整理，变成一件清楚、可追踪的本地工作。**
 >
