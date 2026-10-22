@@ -95,4 +95,6 @@ Use mediaGrab only for content you have the right to access, download, and retai
 
 ## License
 
-The repository does not currently declare a project-level license. Do not assume the code is licensed for redistribution or reuse until a license is added.
+mediaGrab is licensed under the [MIT License](./LICENSE).
+
+Third-party dependencies and bundled tools, including FFmpeg, LAME, and yt-dlp, retain their respective licenses. See the license notices included with those components.
