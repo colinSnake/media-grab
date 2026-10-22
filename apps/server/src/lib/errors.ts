@@ -8,7 +8,7 @@ import {
 /**
  * 统一错误分类。
  * 分类先于重试：只有 network / risk 才值得重试，账号与权限类重试没有意义
- * （见 docs/TECH-DESIGN.md ADR-6）。
+ * （见 docs/tech-design.md ADR-6）。
  *
  * B站业务码 → 分类 / 中文文案的映射集中在 `packages/shared`（NFR-07），
  * 本模块只负责把它翻译成 HTTP 语义与统一错误信封。

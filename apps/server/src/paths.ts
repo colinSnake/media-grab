@@ -19,7 +19,7 @@ export function findRepoRoot(startDir: string): string | undefined {
  *
  * 优先 WEB_DIST 环境变量；否则从**模块自身位置**向上找仓库根再拼 `apps/web/dist`。
  * 这样无论从 `src`（tsx）还是 `dist`（node）运行、也不管 cwd 在哪，结果都一致 ——
- * 避免依赖 cwd 或可执行文件位置的脆弱猜测（见 docs/TECH-DESIGN.md ADR-9）。
+ * 避免依赖 cwd 或可执行文件位置的脆弱猜测（见 docs/tech-design.md ADR-9）。
  */
 export function resolveWebDist(
   moduleDir: string = path.dirname(fileURLToPath(import.meta.url)),

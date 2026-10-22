@@ -9,6 +9,10 @@ packages/*/dist/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/bundle/
+apps/desktop/src-tauri/resources/media-tools/*
+!apps/desktop/src-tauri/resources/media-tools/README.md
+apps/desktop/src-tauri/resources/core/*
+!apps/desktop/src-tauri/resources/core/README.md
 *.tsbuildinfo
 .vite/
 

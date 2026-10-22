@@ -21,6 +21,7 @@ import type { PlatformRegistry } from '../platform/registry.js'
 import type { ConfigStore } from '../lib/config-store.js'
 import type { TaskRepository } from '../store/repositories.js'
 import { resolveDataDir, resolveDownloadDir } from '../paths.js'
+import { resolveFfmpegExecutable } from '../media-tools.js'
 import { DEFAULT_USER_AGENT } from '../bili/http.js'
 import { checkFfmpeg, type FfmpegStatus } from './ffmpeg.js'
 
@@ -477,7 +478,7 @@ export class TaskService {
   }
 
   private async runFfmpeg(args: string[], controller: AbortController): Promise<void> {
-    const executable = this.#config.get().ffmpegPath.trim() || 'ffmpeg'
+    const executable = resolveFfmpegExecutable(this.#config.get().ffmpegPath)
     const child = spawn(executable, args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     child.stderr?.on('data', (chunk: Buffer) => { stderr = `${stderr}${chunk.toString()}`.slice(-4_000) })

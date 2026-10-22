@@ -328,7 +328,7 @@ export class BiliHttp {
       // 跨源 CORS 请求（**含 GET**）必须带 Origin，且 Site 必须是 same-site / cross-site。
       // 实测（M1-9）：声称 `same-origin` 却不带 Origin 的组合会被 WAF 直接判为伪造请求，
       // 返回 HTTP 412 `{"code":-412,"message":"request was banned"}`；
-      // 而 `same-site` + Origin 的组合稳定返回 200。详见 docs/RISK-CONTROL.md §7。
+      // 而 `same-site` + Origin 的组合稳定返回 200。详见 docs/risk-control.md §7。
       const origin =
         options.origin === undefined
           ? crossOrigin || method !== 'GET'

@@ -24,17 +24,17 @@ Tauri 2 + Rust 桌面外壳
 
 | 技术/模块 | 通俗解释 | 在 mediaGrab 中的职责 | 当前状态 |
 | --- | --- | --- | --- |
-| Tauri 2 | 用系统自带的网页显示组件承载界面，再用 Rust 提供桌面程序外壳。 | 创建应用窗口、加载前端、通过 Tauri CLI 生成平台安装包。 | 已接入并能构建桌面外壳；尚未把 Node 服务和媒体工具打进安装包。 |
+| Tauri 2 | 用系统自带的网页显示组件承载界面，再用 Rust 提供桌面程序外壳。 | 创建应用窗口、启动随包 Node core、加载前端、通过 Tauri CLI 生成平台安装包。 | 已接入并能构建桌面外壳；Node core 资源准备和生命周期接线已完成，三端安装验收待完成。 |
 | Rust | 一种编译型系统语言，适合编写桌面宿主和系统集成代码。 | 用于 Tauri 宿主、窗口生命周期及需要原生 API 的桌面能力。 | 当前用于 Tauri；不负责替换 Node/Fastify 业务核心。 |
 | React 19 | 用组件拼装网页界面的工具。 | 构建链接输入、解析预览、下载任务、历史记录和设置界面。 | 当前界面已使用。 |
 | TypeScript | 给 JavaScript 加上类型信息，帮助更早发现数据用错的问题。 | 用于前端、服务端和共享类型包。 | 当前主要开发语言。 |
 | Vite | 前端开发服务器和打包工具，负责快速预览并生成网页静态文件。 | 开发时服务界面；桌面构建时生成 Tauri 加载的前端产物。 | 当前使用。 |
-| Node.js 22 | 运行 JavaScript/TypeScript 服务端代码的环境。 | 运行本地 API、平台解析、任务编排和数据访问。 | 当前桌面开发及服务端实现的运行时；发行包尚未内置。 |
+| Node.js 22 | 运行 JavaScript/TypeScript 服务端代码的环境。 | 运行本地 API、平台解析、任务编排和数据访问。 | 已增加按目标平台把 Node 运行时随桌面包提供的准备脚本；三端安装验收仍待完成。 |
 | Fastify | Node.js 的 Web 服务框架，用来定义 API、校验请求并组织插件。 | 提供本机 HTTP/WebSocket API，连接前端与下载服务。 | 当前使用。 |
 | SQLite | 单文件关系型数据库，不需要另起数据库服务器。 | 持久化设置、设备信息和下载任务快照；视频本身不放进数据库。 | 当前使用。 |
 | Zod + shared | Zod 是运行时数据校验库；shared 是前后端共用的数据约定包。 | 约束任务、媒体、平台、账号等数据结构，尽早发现无效输入。 | 当前使用。 |
-| FFmpeg | 常见的音视频处理工具。 | 按需合并音视频流、封装容器或转换音频格式。 | 服务端支持调用；尚未随桌面包封装。 |
-| yt-dlp | 可更新的媒体信息提取工具，覆盖多种网站。 | 作为部分平台适配路径的可选 extractor，由 mediaGrab 负责任务和结果管理。 | 当前可由开发环境或用户配置提供；尚未随桌面包封装。 |
+| FFmpeg | 常见的音视频处理工具。 | 按需合并音视频流、封装容器或转换音频格式。 | 支持从桌面资源目录、用户配置或 PATH 探测；发布构建需要提供固定版本和 SHA-256。 |
+| yt-dlp | 可更新的媒体信息提取工具，覆盖多种网站。 | 作为部分平台适配路径的可选 extractor，由 mediaGrab 负责任务和结果管理。 | 支持从桌面资源目录、项目 `.venv`、用户配置或 PATH 探测；发布构建需要提供固定版本和 SHA-256。 |
 
 ## 为什么选 Tauri
 
@@ -64,7 +64,7 @@ mediaGrab 的核心界面天然适合用 Web 技术迭代，但目标产品又�
 
 **现在已经落地**：React/Vite UI、Node.js/Fastify 本地服务、SQLite 持久化、共享 TypeScript/Zod 契约、Tauri 2 桌面 shell，以及服务端调用媒体工具的代码路径。
 
-**仍需完成**：把 Node 运行时和 Fastify 服务可靠地随应用打包；确定 FFmpeg/yt-dlp 的分发策略；完成三系统真实安装和端到端验收；补齐签名、升级和发行流程。详见 [路线图](./ROADMAP.md) 与 [技术设计](./TECH-DESIGN.md)。
+**仍需完成**：为三平台固定并注入 FFmpeg/yt-dlp 二进制和许可证说明；完成三系统真实安装和端到端验收；补齐签名、升级和发行流程。详见[桌面媒体工具方案](./media-tools.md)、[路线图](./roadmap.md) 与 [技术设计](./tech-design.md)。
 
 ## 手动构建命令
 
@@ -102,13 +102,14 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 - **Windows**：Microsoft C++ Build Tools 的“Desktop development with C++”组件、MSVC Rust 工具链、WebView2 Runtime。若 MSI 构建报 `light.exe` 错误，检查系统是否启用了 VBScript 可选功能。
 - **Linux**：需安装发行版对应的 GTK/WebKitGTK 开发依赖和构建工具。Debian/Ubuntu 与其他发行版的包名不同，具体列表以 [Tauri 官方前置要求](https://v2.tauri.app/zh-cn/start/prerequisites/)为准。
 
-首次克隆后请先安装 JavaScript 依赖；Rust/Tauri 构建还需要上述系统依赖。产物目前还不包含可独立启动的 Node 本地核心，FFmpeg/yt-dlp 的最终分发方式也未确定，因此暂不应视为完整发行版。
+首次克隆后请先安装 JavaScript 依赖；Rust/Tauri 构建还需要上述系统依赖。正式发行构建还需在目标系统 runner 上设置匹配目标平台的 Node 二进制，执行 `pnpm prepare:desktop-runtime`，为 FFmpeg/yt-dlp 设置固定 URL 和 SHA-256 后执行 `pnpm prepare:release-tools`，再运行 Tauri bundler。当前仍未完成三系统真实安装、签名及媒体工具许可证审查。
 
 ## 相关文档
 
 - [README English](./README.md)
-- [产品需求](./PRD.md)
-- [技术设计](./TECH-DESIGN.md)
-- [项目路线图](./ROADMAP.md)
-- [风险与合规边界](./RISK-CONTROL.md)
-- [项目结构与开发规范](./项目结构与开发规范.md)
+- [产品需求](./prd.md)
+- [技术设计](./tech-design.md)
+- [项目路线图](./roadmap.md)
+- [风险与合规边界](./risk-control.md)
+- [项目结构与开发规范](./project-structure-and-conventions.md)
+- [桌面媒体工具方案](./media-tools.md)

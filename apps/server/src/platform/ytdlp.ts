@@ -10,6 +10,7 @@ import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
 import { findRepoRoot } from '../paths.js'
+import { resolveYtDlpExecutable } from '../media-tools.js'
 
 const execFileAsync = promisify(execFile)
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
@@ -86,7 +87,8 @@ export function resolveProjectYtDlp(): string | undefined {
 }
 
 function defaultYtDlpExecutable(): string {
-  return resolveProjectYtDlp() ?? 'yt-dlp'
+  const bundled = resolveYtDlpExecutable()
+  return bundled === 'yt-dlp' ? resolveProjectYtDlp() ?? bundled : bundled
 }
 
 function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | undefined {

@@ -39,6 +39,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/media-tools",
+      "resources/core"
+    ],
     "shortDescription": "Local multi-platform media workspace",
     "longDescription": "Parse and manage local media downloads from supported platforms.",
     "category": "Utility"

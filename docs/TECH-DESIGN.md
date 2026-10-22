@@ -116,7 +116,7 @@ Web 与桌面 UI 使用同一套本地 HTTP API 和 shared schema。Tauri comman
 
 ## 7. 数据模型
 
-SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下载队列和历史记录不是两份任务数据：`tasks` 中的快照按 `status` 区分进行中任务和终态任务，媒体文件不进数据库。具体规则见 [项目结构与开发规范](./项目结构与开发规范.md)。
+SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下载队列和历史记录不是两份任务数据：`tasks` 中的快照按 `status` 区分进行中任务和终态任务，媒体文件不进数据库。具体规则见 [项目结构与开发规范](./project-structure-and-conventions.md)。
 
 数据库位置必须使用系统应用数据目录：macOS `Application Support`、Windows `AppData/Local`、Linux `XDG_DATA_HOME`，不再默认写入仓库目录。
 

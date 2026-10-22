@@ -1,12 +1,13 @@
-# mediaGrab
+<p align="center">
+  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="72" valign="middle" alt="MediaGrab logo" />
+  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="320" valign="middle" alt="MediaGrab" />
+</p>
 
 > **A local-first media workspace for your desktop.**
 >
 > Turn a link into a clear, trackable download task, then keep the result on your own device.
 
-[简体中文](./README.zh.md) · [Technical design](./docs/TECH-DESIGN.md) · [Technology choices](./docs/项目技术选型.md)
-
-![mediaGrab logo](./apps/web/src/assets/mediagrab-logo.svg)
+[简体中文](./README.zh.md) · [Technical design](./docs/tech-design.md) · [Technology choices](./docs/technology-selection.md)
 
 mediaGrab brings link parsing, media selection, downloads, and task history into one focused desktop workspace. The project began as an effort to make saving authorized media less scattered and more understandable: one place to see what a link contains, what can actually be downloaded, and what happened to each task.
 
@@ -35,7 +36,7 @@ The project is evolving from a Bilibili-focused prototype into a platform-adapte
 | Local storage | SQLite | Stores settings and task records; media files remain ordinary files. |
 | Media tools | FFmpeg and yt-dlp | Handle media processing and selected platform extraction workflows. |
 
-The current repository is a working desktop application whose business core is Node.js/Fastify. Tauri provides the desktop shell and Rust-native integration; the production packaging work is to ship the Node runtime and local service with the app, then provide a clear FFmpeg/yt-dlp strategy. See [Build for desktop](#build-for-desktop) and the [technology selection](./docs/项目技术选型.md) for details.
+The current repository is a working desktop application whose business core is Node.js/Fastify. Tauri provides the desktop shell and Rust-native integration. Release tooling now prepares the Node core and stages checksum-verified FFmpeg/yt-dlp resources; see [Build for desktop](#build-for-desktop) and the [media tools release plan](./docs/media-tools.md).
 
 ## Build for desktop
 
@@ -70,20 +71,20 @@ To build a particular format instead of every configured format, invoke the Taur
 pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 ```
 
-For development, `pnpm dev:desktop` starts the Tauri window, Vite frontend, and local Node service. See [project structure and development conventions](./docs/项目结构与开发规范.md) for more workflows.
+For development, `pnpm dev:desktop` starts the Tauri window, Vite frontend, and local Node service. See [project structure and development conventions](./docs/project-structure-and-conventions.md) for more workflows.
 
 ## Project status
 
-mediaGrab is under active development. The desktop shell can be built on macOS; Windows and Linux packaging should be built and verified on their respective hosts. Core platform flows are still being validated, and the desktop bundle does not yet include its runtime dependencies. Treat generated bundles as development artifacts rather than polished, self-contained releases.
+mediaGrab is under active development. The macOS shell and bundled Node core build locally; Windows and Linux packaging, pinned media-tool artifacts, third-party license notices, signing, and installed-package workflows still require release-runner validation. Treat generated bundles as development artifacts rather than polished releases.
 
 ## Documentation
 
-- [Product requirements](./docs/PRD.md)
-- [Technical design](./docs/TECH-DESIGN.md)
-- [Technology selection, explained](./docs/项目技术选型.md)
-- [Roadmap](./docs/ROADMAP.md)
-- [Risk and responsible use](./docs/RISK-CONTROL.md)
-- [Project structure and development conventions](./docs/项目结构与开发规范.md)
+- [Product requirements](./docs/prd.md)
+- [Technical design](./docs/tech-design.md)
+- [Technology selection, explained](./docs/technology-selection.md)
+- [Roadmap](./docs/roadmap.md)
+- [Risk and responsible use](./docs/risk-control.md)
+- [Project structure and development conventions](./docs/project-structure-and-conventions.md)
 
 ## Responsible use
 

@@ -60,7 +60,7 @@ export class Database {
     const target = file === MEMORY ? MEMORY : path.resolve(file)
     if (target !== MEMORY) {
       // 首次启动时数据目录可能还不存在：递归创建并收紧权限，
-      // 因为库里会存设备指纹等本地私有数据（见 docs/TECH-DESIGN.md 的安全约束）。
+      // 因为库里会存设备指纹等本地私有数据（见 docs/tech-design.md 的安全约束）。
       mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 })
     }
 

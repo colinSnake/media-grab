@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { resolveFfmpegExecutable } from '../media-tools.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -11,7 +12,7 @@ export interface FfmpegStatus {
 }
 
 export async function checkFfmpeg(candidate = ''): Promise<FfmpegStatus> {
-  const executable = candidate.trim() || 'ffmpeg'
+  const executable = resolveFfmpegExecutable(candidate)
   try {
     const result = await execFileAsync(executable, ['-version'], { timeout: 5_000 })
     const firstLine = result.stdout.split('\n', 1)[0]?.trim() ?? ''

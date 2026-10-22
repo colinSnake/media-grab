@@ -20,7 +20,12 @@
     "dev:shared": "pnpm --filter @mediagrab/shared dev",
     "start": "node apps/server/dist/index.js",
     "setup:ytdlp": "node scripts/setup-ytdlp.mjs",
+    "stage:desktop-tools": "node scripts/stage-desktop-tools.mjs",
+    "prepare:release-tools": "node scripts/prepare-release-tools.mjs",
+    "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
+    "verify:desktop-runtime": "node scripts/verify-desktop-runtime.mjs",
     "build:desktop": "pnpm --filter @mediagrab/desktop build",
+    "build:desktop:release": "pnpm prepare:desktop-runtime && pnpm prepare:release-tools && pnpm verify:desktop-runtime && pnpm --filter @mediagrab/desktop build",
     "typecheck": "pnpm build:shared && pnpm -r typecheck",
     "test": "pnpm -r test",
     "probe:m1": "pnpm --filter @mediagrab/server probe:m1"

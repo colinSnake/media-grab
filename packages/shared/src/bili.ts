@@ -9,7 +9,7 @@ import { z } from 'zod'
  *
  * 档位的可得性由 B站服务端鉴权决定，不是本项目的开关：
  * 匿名请求通常只能拿到 240P/360P/480P（部分视频 720P）。
- * 详见 docs/RISK-CONTROL.md §2。
+ * 详见 docs/risk-control.md §2。
  */
 export const QN = {
   Q240P: 6,

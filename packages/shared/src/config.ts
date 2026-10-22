@@ -14,7 +14,7 @@ export const CODEC_ID: Readonly<Record<Codec, number>> = {
  * 下载模式。
  *
  * dash 模式下视频流与音频流本身就是两条独立的流，所以"支持音频下载"与"支持视频下载"
- * 是同一套取流逻辑的三种编排（详见 docs/TECH-DESIGN.md §2）：
+ * 是同一套取流逻辑的三种编排（详见 docs/tech-design.md §2）：
  * - `video+audio` 两条都取，用 ffmpeg 合并为 mp4
  * - `video`       只取视频流，remux 为 mp4
  * - `audio`       只取音频流，直接落盘为 m4a（零转码）或转码为 mp3

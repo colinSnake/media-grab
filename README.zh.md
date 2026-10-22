@@ -1,12 +1,13 @@
-# mediaGrab
+<p align="center">
+  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="72" valign="middle" alt="MediaGrab 标志" />
+  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="320" valign="middle" alt="MediaGrab" />
+</p>
 
 > **把多平台媒体整理，变成一件清楚、可追踪的本地工作。**
 >
 > 粘贴链接，查看可用内容，创建下载任务，把文件留在自己的设备上。
 
-[English](./README.md) · [技术设计](./docs/TECH-DESIGN.md) · [项目技术选型](./docs/项目技术选型.md)
-
-![mediaGrab 标志](./apps/web/src/assets/mediagrab-logo.svg)
+[English](./README.md) · [技术设计](./docs/tech-design.md) · [项目技术选型](./docs/technology-selection.md)
 
 mediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链接解析、视频/音频选择、下载进度和任务历史放到同一个桌面应用里。项目从解决“工具分散、资源看不懂、下载过程难追踪”开始：让用户知道链接里有什么、当前账号实际能获取什么，以及每个任务最后发生了什么。
 
@@ -37,7 +38,7 @@ mediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链�
 | 本地存储 | SQLite | 保存设置和任务记录；媒体文件仍作为普通文件存放。 |
 | 媒体工具 | FFmpeg、yt-dlp | 分别参与媒体处理，以及部分平台的格式提取流程。 |
 
-更完整的选型理由、优缺点和当前/目标架构见[项目技术选型](./docs/项目技术选型.md)。
+更完整的选型理由、优缺点和当前/目标架构见[项目技术选型](./docs/technology-selection.md)。
 
 ## 手动构建桌面版
 
@@ -74,7 +75,7 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 
 ### 当前发行限制
 
-当前构建能生成 Tauri 桌面外壳和 Web 界面安装包，但完整发行版仍需要把 Node.js 运行时和本地服务随应用提供，并确定 FFmpeg/yt-dlp 的分发策略。因此当前产物是可构建的开发阶段桌面包，不是安装后即可完成全部任务的正式发行版。Rust 在这里负责 Tauri 桌面外壳和原生系统集成，不负责替换现有 Node 业务核心。
+当前已增加发行构建脚本，可准备随包提供的 Node.js/Fastify 核心，并要求 FFmpeg/yt-dlp 使用固定 URL 与 SHA-256 校验后再进入资源目录。三端工具版本、许可证说明、签名和真实安装验收仍待完成，因此当前产物仍属于开发阶段桌面包。Rust 负责 Tauri 桌面外壳和原生系统集成，不替换现有 Node 业务核心。
 
 ## 开发
 
@@ -87,12 +88,12 @@ pnpm dev:desktop
 
 ## 文档
 
-- [产品需求](./docs/PRD.md)
-- [技术设计](./docs/TECH-DESIGN.md)
-- [项目技术选型（通俗版）](./docs/项目技术选型.md)
-- [项目路线图](./docs/ROADMAP.md)
-- [风险与合规边界](./docs/RISK-CONTROL.md)
-- [项目结构与开发规范](./docs/项目结构与开发规范.md)
+- [产品需求](./docs/prd.md)
+- [技术设计](./docs/tech-design.md)
+- [项目技术选型（通俗版）](./docs/technology-selection.md)
+- [项目路线图](./docs/roadmap.md)
+- [风险与合规边界](./docs/risk-control.md)
+- [项目结构与开发规范](./docs/project-structure-and-conventions.md)
 
 ## 合规使用
 
