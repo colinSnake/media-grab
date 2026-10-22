@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="140" valign="middle" alt="MediaGrab logo" />
+  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="96" valign="middle" alt="MediaGrab logo" />
   &nbsp;&nbsp;&nbsp;
-  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="620" valign="middle" alt="MediaGrab" />
+  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="390" valign="middle" alt="MediaGrab" />
 </p>
 
 <div style="height: 25px"></div>
@@ -12,11 +12,11 @@
 
 [简体中文](./README.zh.md) · [Technical design](./docs/tech-design.md) · [Technology choices](./docs/technology-selection.md)
 
-mediaGrab brings link parsing, media selection, downloads, and task history into one focused desktop workspace. The project began as an effort to make saving authorized media less scattered and more understandable: one place to see what a link contains, what can actually be downloaded, and what happened to each task.
+MediaGrab brings link parsing, media selection, downloads, and task history into one focused desktop workspace. The project began as an effort to make saving authorized media less scattered and more understandable: one place to see what a link contains, what can actually be downloaded, and what happened to each task.
 
-## Why mediaGrab
+## Why MediaGrab
 
-Media workflows are often split between browser tabs, command-line tools, format guesswork, and files with unclear names. mediaGrab aims to make that process feel like a dependable local tool instead: paste a link, inspect the available media, choose an output, and follow the task through to a file on your computer.
+Media workflows are often split between browser tabs, command-line tools, format guesswork, and files with unclear names. MediaGrab aims to make that process feel like a dependable local tool instead: paste a link, inspect the available media, choose an output, and follow the task through to a file on your computer.
 
 The project is evolving from a Bilibili-focused prototype into a platform-adapter-based workspace. Bilibili, Douyin, and Xiaohongshu paths are present in the codebase; platform behavior and access can vary, so support is not a promise that every link or quality is available. The longer-term direction is a reliable cross-platform desktop app with honest capability reporting, recoverable tasks, and a self-contained runtime.
 
@@ -26,7 +26,7 @@ The project is evolving from a Bilibili-focused prototype into a platform-adapte
 - **One workflow, many sources:** Platform-specific details stay behind adapters and a shared media model.
 - **Show what is actually available:** Login requirements, quality limits, expired links, missing tools, and platform errors should be understandable rather than silently hidden.
 - **Keep the core replaceable:** The interface, desktop shell, and media engine have separate responsibilities, so the current runtime can evolve without rewriting the product experience.
-- **Respect access and ownership:** Use only content you are authorized to access and save. mediaGrab is not designed to bypass DRM, paywalls, or platform restrictions.
+- **Respect access and ownership:** Use only content you are authorized to access and save. MediaGrab is not designed to bypass DRM, paywalls, or platform restrictions.
 
 ## How it fits together
 
@@ -61,6 +61,8 @@ The Tauri configuration currently requests all bundle formats supported on the b
 
 The exact set depends on the host and installed packaging tools. Building on one OS does not automatically produce native installers for all three. Cross-compilation has extra constraints; use a matching OS or CI runner for predictable release artifacts.
 
+For hosted builds, open **Actions → Desktop builds → Run workflow**. The workflow builds macOS arm64/x64, Windows x64, and Linux x64 installers, including the Node runtime, FFmpeg, and yt-dlp. It uploads build artifacts without publishing a GitHub Release. See [Desktop CI](./docs/desktop-ci.md) for triggers, downloads, and tool version updates.
+
 ### Build prerequisites
 
 - **All platforms:** Node.js `>=22.5`, pnpm, Rust stable via rustup, and the platform's native build tools.
@@ -78,7 +80,7 @@ For development, `pnpm dev:desktop` starts the Tauri window, Vite frontend, and 
 
 ## Project status
 
-mediaGrab is under active development. The macOS shell and bundled Node core build locally; Windows and Linux packaging, pinned media-tool artifacts, third-party license notices, signing, and installed-package workflows still require release-runner validation. Treat generated bundles as development artifacts rather than polished releases.
+MediaGrab is under active development. The macOS shell and bundled Node core build locally; Windows and Linux packaging, pinned media-tool artifacts, third-party license notices, signing, and installed-package workflows still require release-runner validation. Treat generated bundles as development artifacts rather than polished releases.
 
 ## Documentation
 
@@ -91,10 +93,10 @@ mediaGrab is under active development. The macOS shell and bundled Node core bui
 
 ## Responsible use
 
-Use mediaGrab only for content you have the right to access, download, and retain. Follow applicable laws and each platform's terms. The project does not aim to defeat DRM, bypass paid or regional restrictions, remove watermarks, or use shared credentials.
+Use MediaGrab only for content you have the right to access, download, and retain. Follow applicable laws and each platform's terms. The project does not aim to defeat DRM, bypass paid or regional restrictions, remove watermarks, or use shared credentials.
 
 ## License
 
-mediaGrab is licensed under the [MIT License](./LICENSE).
+MediaGrab is licensed under the [MIT License](./LICENSE).
 
 Third-party dependencies and bundled tools, including FFmpeg, LAME, and yt-dlp, retain their respective licenses. See the license notices included with those components.

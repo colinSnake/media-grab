@@ -56,13 +56,23 @@ function readErrorMessage(data: unknown): string | undefined {
   return undefined
 }
 
-function apiBase(): string {
+export function apiBase(): string {
   const configured = (globalThis as { __MEDIAGRAB_CORE_URL__?: unknown }).__MEDIAGRAB_CORE_URL__
   if (typeof configured === 'string' && configured.trim() !== '') return configured.replace(/\/$/, '')
-  if (typeof window !== 'undefined' && !['http:', 'https:'].includes(window.location.protocol)) {
+  if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || !['http:', 'https:'].includes(window.location.protocol))) {
     return 'http://127.0.0.1:9070'
   }
   return ''
+}
+
+export function apiUrl(path: string): string {
+  return `${apiBase()}${path}`
+}
+
+export function getTaskEventsUrl(): string {
+  const url = new URL(`${apiBase()}/api/ws`, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -71,9 +81,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const headers = new Headers(init?.headers)
     if (init?.body === undefined) headers.delete('Content-Type')
     else if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-    response = await fetch(`${apiBase()}${url}`, { ...init, headers })
+    response = await fetch(apiUrl(url), { ...init, headers })
   } catch {
-    throw new Error('本地核心未连接，请先启动 MediaGrab 核心服务（默认端口 9070）。')
+    throw new Error('暂时连不上下载服务，请稍后重试。')
   }
   const text = await response.text()
 
@@ -92,8 +102,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export function getHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>('/api/health')
+export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  return request<HealthResponse>('/api/health', { signal })
 }
 
 export function getConfig(): Promise<AppConfig> {

@@ -37,7 +37,7 @@ import type {
   TaskSnapshot,
 } from '@mediagrab/shared'
 import { detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
-import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
+import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventsUrl, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo.svg'
 import { TaskRow } from './components/TaskRow'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
@@ -52,6 +52,7 @@ type SettingsAccountPlatform = AccountPlatform | 'youtube'
 type CookieAccountState = { cookie: string; configured: boolean; saving: boolean }
 type WorkspaceView = 'new' | 'queue' | 'history'
 type ThemeMode = 'system' | 'light' | 'dark'
+type CoreConnection = 'connecting' | 'ready' | 'disconnected'
 
 const THEME_STORAGE_KEY = 'mediagrab-theme'
 const themeModes: ThemeMode[] = ['system', 'dark', 'light']
@@ -67,14 +68,15 @@ const heroTitlePrimary = '把喜欢的内容，'
 const heroTitleAccent = '带回本地。'
 const heroTitle = `${heroTitlePrimary}${heroTitleAccent}`
 
-function coreStatusTooltip(health: HealthResponse | null, extractor: ExtractorStatus | null): string {
-  if (health === null) return '本地核心 · 连接失败'
+function coreStatusTooltip(connection: CoreConnection, health: HealthResponse | null, extractor: ExtractorStatus | null): string {
+  if (connection === 'connecting') return '下载服务 · 正在连接'
+  if (health === null) return '下载服务 · 未连接，正在重试'
   const extractorStatus = extractor === null
     ? '正在检查 yt-dlp'
     : extractor.available
       ? `yt-dlp ${extractor.version}`
       : 'yt-dlp 未安装'
-  return `本地核心 · 连接正常\n${health.runtime.platform} · ${extractorStatus}`
+  return `下载服务 · 连接正常\n${health.runtime.platform} · ${extractorStatus}`
 }
 
 function readThemeMode(): ThemeMode {
@@ -120,6 +122,7 @@ function App() {
   const [isParsing, setIsParsing] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [coreConnection, setCoreConnection] = useState<CoreConnection>('connecting')
   const [extractor, setExtractor] = useState<ExtractorStatus | null>(null)
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [draft, setDraft] = useState<AppConfigPatch>({})
@@ -135,6 +138,11 @@ function App() {
     douyin: { cookie: '', configured: false, saving: false },
     xiaohongshu: { cookie: '', configured: false, saving: false },
   })
+  const visibleNotice = coreConnection === 'connecting'
+    ? { kind: 'info', text: '正在准备下载功能，请稍等…' }
+    : coreConnection === 'disconnected'
+      ? { kind: 'error', text: '下载服务暂时不可用，正在重试。' }
+      : notice
 
   useEffect(() => {
     if (!historyFilterOpen) return
@@ -202,29 +210,70 @@ function App() {
   }
 
   useEffect(() => {
-    void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts(), getCookieStatus('douyin'), getCookieStatus('xiaohongshu')])
-      .then(([healthData, configData, extractorData, accountData, douyinCookieData, xhsCookieData]) => {
+    let active = true
+    let checking = false
+    let initialized = false
+    const startedAt = Date.now()
+    let requestController: AbortController | undefined
+
+    const initialize = async () => {
+      await Promise.allSettled([
+        getConfig().then((configData) => {
+          if (!active) return
+          setConfig(configData)
+          setDraft({
+            savePath: configData.savePath,
+            ytDlpPath: configData.ytDlpPath,
+            defaultDownloadMode: configData.defaultDownloadMode,
+            audioContainer: configData.audioContainer,
+          })
+          setMode(configData.defaultDownloadMode)
+          setAudioContainer(configData.audioContainer)
+        }).catch(() => { initialized = false }),
+        getExtractorStatus().then((data) => { if (active) setExtractor(data) }),
+        getAccounts().then((data) => { if (active) setAccounts(data.accounts) }),
+        ...(['douyin', 'xiaohongshu'] as const).map((platform) => getCookieStatus(platform).then((data) => {
+          if (!active) return
+          setCookieAccounts((current) => ({
+            ...current,
+            [platform]: { ...current[platform], configured: data.configured },
+          }))
+        })),
+      ])
+    }
+
+    const refresh = async () => {
+      if (checking) return
+      checking = true
+      const controller = new AbortController()
+      requestController = controller
+      const timeout = window.setTimeout(() => controller.abort(), 5_000)
+      try {
+        const healthData = await getHealth(controller.signal)
+        if (!active) return
         setHealth(healthData)
-        setExtractor(extractorData)
-        setAccounts(accountData.accounts)
-        setCookieAccounts((current) => ({
-          ...current,
-          douyin: { ...current.douyin, configured: douyinCookieData.configured },
-          xiaohongshu: { ...current.xiaohongshu, configured: xhsCookieData.configured },
-        }))
-        setConfig(configData)
-        setDraft({
-          savePath: configData.savePath,
-          ytDlpPath: configData.ytDlpPath,
-          defaultDownloadMode: configData.defaultDownloadMode,
-          audioContainer: configData.audioContainer,
-        })
-        setMode(configData.defaultDownloadMode)
-        setAudioContainer(configData.audioContainer)
-      })
-      .catch(() => {
-        setNotice({ kind: 'info', text: '本地核心尚未连接。可以先浏览界面，启动服务后即可解析链接。' })
-      })
+        setCoreConnection('ready')
+        if (!initialized) {
+          initialized = true
+          void initialize()
+        }
+      } catch {
+        if (!active) return
+        setHealth(null)
+        setCoreConnection(Date.now() - startedAt < 10_000 ? 'connecting' : 'disconnected')
+      } finally {
+        window.clearTimeout(timeout)
+        checking = false
+      }
+    }
+
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 3_000)
+    return () => {
+      active = false
+      requestController?.abort()
+      window.clearInterval(timer)
+    }
   }, [])
 
   useEffect(() => {
@@ -238,35 +287,29 @@ function App() {
       if (timer === undefined) timer = window.setInterval(refresh, 1_500)
     }
     let socket: WebSocket | undefined
-    const canUseWebSocket = ['http:', 'https:'].includes(window.location.protocol)
-    if (canUseWebSocket) {
-      try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        socket = new WebSocket(`${protocol}//${window.location.host}/api/ws`)
-        socket.onopen = () => {
-          if (timer !== undefined) {
-            window.clearInterval(timer)
-            timer = undefined
-          }
+    try {
+      socket = new WebSocket(getTaskEventsUrl())
+      socket.onopen = () => {
+        if (timer !== undefined) {
+          window.clearInterval(timer)
+          timer = undefined
         }
-        socket.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data as string) as { type?: string; task?: TaskSnapshot; id?: string }
-            if (message.type === 'task-update' && message.task !== undefined) {
-              setTasks((current) => uniqueTaskList([message.task as TaskSnapshot, ...current.filter((item) => item.id !== message.task?.id)]))
-            } else if (message.type === 'task-removed' && message.id !== undefined) {
-              setTasks((current) => current.filter((item) => item.id !== message.id))
-            }
-          } catch {
-            // Ignore malformed event payloads; the polling fallback will reconcile state.
-          }
-        }
-        socket.onerror = startPolling
-        socket.onclose = () => { if (active) startPolling() }
-      } catch {
-        startPolling()
       }
-    } else {
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data as string) as { type?: string; task?: TaskSnapshot; id?: string }
+          if (message.type === 'task-update' && message.task !== undefined) {
+            setTasks((current) => uniqueTaskList([message.task as TaskSnapshot, ...current.filter((item) => item.id !== message.task?.id)]))
+          } else if (message.type === 'task-removed' && message.id !== undefined) {
+            setTasks((current) => current.filter((item) => item.id !== message.id))
+          }
+        } catch {
+          // Ignore malformed event payloads; the polling fallback will reconcile state.
+        }
+      }
+      socket.onerror = startPolling
+      socket.onclose = () => { if (active) startPolling() }
+    } catch {
       startPolling()
     }
     return () => {
@@ -532,9 +575,9 @@ function App() {
               {themeIcon}
             </button>
             <span
-              className={`core-status tooltip-target ${health === null ? 'error' : 'ready'}`}
-              data-tooltip={coreStatusTooltip(health, extractor)}
-              aria-label={coreStatusTooltip(health, extractor)}
+              className={`core-status tooltip-target ${coreConnection === 'disconnected' ? 'error' : coreConnection}`}
+              data-tooltip={coreStatusTooltip(coreConnection, health, extractor)}
+              aria-label={coreStatusTooltip(coreConnection, health, extractor)}
               role="status"
               tabIndex={0}
             >
@@ -544,9 +587,12 @@ function App() {
           </div>
         </header>
 
-        {activeView !== 'new' && notice !== null && <div className={`notice global-notice ${notice.kind}`} role="status"><span>{notice.kind === 'error' ? <X /> : notice.kind === 'success' ? <Check /> : <Activity />}</span>{notice.text}</div>}
+        {activeView !== 'new' && visibleNotice !== null && <div className={`notice global-notice ${visibleNotice.kind}`} role="status"><span>{visibleNotice.kind === 'error' ? <X /> : visibleNotice.kind === 'success' ? <Check /> : <Activity />}</span>{visibleNotice.text}</div>}
 
         {activeView === 'new' && <section className="hero-panel">
+          <div className="hero-notice-slot">
+            {visibleNotice !== null && <div className={`notice ${visibleNotice.kind}`} role="status"><span>{visibleNotice.kind === 'error' ? <X /> : visibleNotice.kind === 'success' ? <Check /> : <Activity />}</span>{visibleNotice.text}</div>}
+          </div>
           <div className="hero-heading">
             <div className="hero-copy">
               <h1 aria-label={heroTitle}><span className="hero-title-primary">{heroTitle.slice(0, Math.min(heroTitleLength, heroTitlePrimary.length))}</span><span className="hero-title-accent">{heroTitle.slice(heroTitlePrimary.length, heroTitleLength)}</span><span className="hero-caret" aria-hidden="true">|</span></h1>
@@ -579,7 +625,6 @@ function App() {
               {!isParsing && <ArrowRight className="button-trailing" />}
             </button>
           </div>
-          {notice !== null && <div className={`notice ${notice.kind}`} role="status"><span>{notice.kind === 'error' ? <X /> : notice.kind === 'success' ? <Check /> : <Activity />}</span>{notice.text}</div>}
         </section>}
 
         {activeView === 'new' && <div className="workspace-grid">

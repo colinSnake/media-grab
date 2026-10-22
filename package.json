@@ -1,9 +1,9 @@
 {
-  "name": "mediagrab",
+  "name": "media-grab",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "mediaGrab local multi-platform media workspace",
+  "description": "MediaGrab local multi-platform media workspace",
   "type": "module",
   "engines": {
     "node": ">=22.5"
@@ -25,8 +25,8 @@
     "prepare:release-tools": "node scripts/prepare-release-tools.mjs",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "verify:desktop-runtime": "node scripts/verify-desktop-runtime.mjs",
-    "build:desktop": "pnpm --filter @mediagrab/desktop build",
-    "build:desktop:release": "pnpm prepare:desktop-runtime && pnpm prepare:release-tools && pnpm verify:desktop-runtime && pnpm --filter @mediagrab/desktop build",
+    "build:desktop": "pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
+    "build:desktop:release": "pnpm prepare:desktop-runtime && pnpm prepare:release-tools && pnpm verify:desktop-runtime && pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
     "typecheck": "pnpm build:shared && pnpm -r typecheck",
     "test": "pnpm -r test",
     "probe:m1": "pnpm --filter @mediagrab/server probe:m1"

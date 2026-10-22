@@ -30,15 +30,6 @@ app.addHook('onClose', async () => {
   services.close()
 })
 
-// 免登初始化：指纹（必需）+ bili_ticket（增强）。失败不阻塞启动。
-const init = await initializeBili(services, app.log)
-if (!init.ok) {
-  app.log.warn(
-    { error: init.error },
-    '设备指纹尚未就绪：解析请求会在首次调用时重试；离线环境下不影响页面与 /api/health',
-  )
-}
-
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1']
 if (!LOOPBACK.includes(config.bindHost)) {
   app.log.warn(
@@ -73,6 +64,13 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'))
 
 try {
   await app.listen({ port: config.serverPort, host: config.bindHost })
+  const init = await initializeBili(services, app.log)
+  if (!init.ok) {
+    app.log.warn(
+      { error: init.error },
+      '设备指纹尚未就绪：解析请求会在首次调用时重试；离线环境下不影响页面与 /api/health',
+    )
+  }
 } catch (err) {
   app.log.error({ err }, '启动失败：端口可能已被占用，可用 PORT=<端口> 覆盖')
   process.exitCode = 1

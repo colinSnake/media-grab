@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="140" valign="middle" alt="MediaGrab 标志" />
+  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="96" valign="middle" alt="MediaGrab 标志" />
   &nbsp;&nbsp;&nbsp;
-  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="620" valign="middle" alt="MediaGrab" />
+  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="390" valign="middle" alt="MediaGrab" />
 </p>
 
 <div style="height: 25px"></div>
@@ -12,11 +12,11 @@
 
 [English](./README.md) · [技术设计](./docs/tech-design.md) · [项目技术选型](./docs/technology-selection.md)
 
-mediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链接解析、视频/音频选择、下载进度和任务历史放到同一个桌面应用里。项目从解决“工具分散、资源看不懂、下载过程难追踪”开始：让用户知道链接里有什么、当前账号实际能获取什么，以及每个任务最后发生了什么。
+MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链接解析、视频/音频选择、下载进度和任务历史放到同一个桌面应用里。项目从解决“工具分散、资源看不懂、下载过程难追踪”开始：让用户知道链接里有什么、当前账号实际能获取什么，以及每个任务最后发生了什么。
 
 ## 项目缘起与愿景
 
-保存一段自己有权访问的媒体，常常要在浏览器、命令行、格式转换工具和一堆文件之间来回切换。mediaGrab 希望把这条流程变成一件可理解、可管理的本地工作：粘贴链接，检查资源，选择产物，跟踪任务，最后在电脑上找到文件。
+保存一段自己有权访问的媒体，常常要在浏览器、命令行、格式转换工具和一堆文件之间来回切换。MediaGrab 希望把这条流程变成一件可理解、可管理的本地工作：粘贴链接，检查资源，选择产物，跟踪任务，最后在电脑上找到文件。
 
 仓库历史从 2026 年 10 月 16 日的初始提交开始，随后逐步加入 B 站解析与下载链路，再扩展到通用媒体模型、抖音/小红书适配、账号管理和任务工作区。现在它正从以 B 站为中心的原型，演进为基于平台适配器的多来源工作台。代码中已有多个平台的接入路径，但平台规则、登录状态和资源可用性会变化，因此“有适配器”不代表任意链接或清晰度都一定可用。
 
@@ -63,6 +63,8 @@ mediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链�
 
 产物通常位于 `apps/desktop/src-tauri/target/release/bundle/`。在一台系统上执行命令不会自动生成另外两种系统的原生安装包；要可靠发布，请分别在对应系统或相应 CI runner 上构建。
 
+也可以使用仓库的 **Actions → Desktop builds → Run workflow** 一次构建 macOS（Apple 芯片和 Intel）、Windows x64、Linux x64 安装包。CI 会自动准备随包 Node、FFmpeg 和 yt-dlp，详细触发方式和产物下载说明见 [GitHub Actions 桌面构建](./docs/desktop-ci.md)。
+
 如果只想生成指定格式，可以直接调用 Tauri CLI。例如在 macOS 只构建 `.app` 和 `.dmg`：
 
 ```bash
@@ -78,7 +80,7 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 
 ### 当前发行限制
 
-当前已增加发行构建脚本，可准备随包提供的 Node.js/Fastify 核心，并要求 FFmpeg/yt-dlp 使用固定 URL 与 SHA-256 校验后再进入资源目录。三端工具版本、许可证说明、签名和真实安装验收仍待完成，因此当前产物仍属于开发阶段桌面包。Rust 负责 Tauri 桌面外壳和原生系统集成，不替换现有 Node 业务核心。
+发行构建会准备随包提供的 Node.js/Fastify 核心，并对 FFmpeg/yt-dlp 的输入和版本进行校验。CI 已配置三端工具版本、许可证和构建记录；云端三端构建及真实安装验收仍需实际运行验证，签名和 Apple 公证尚未接入，因此当前产物仍属于测试阶段桌面包。Rust 负责 Tauri 桌面外壳和原生系统集成，不替换现有 Node 业务核心。
 
 ## 开发
 
@@ -100,10 +102,10 @@ pnpm dev:desktop
 
 ## 合规使用
 
-请仅使用 mediaGrab 处理你有权访问、下载和保存的内容，并遵守适用法律及平台服务条款。本项目不以破解 DRM、绕过付费或区域限制、去水印或共享账号凭据为目标。
+请仅使用 MediaGrab 处理你有权访问、下载和保存的内容，并遵守适用法律及平台服务条款。本项目不以破解 DRM、绕过付费或区域限制、去水印或共享账号凭据为目标。
 
 ## 许可证
 
-mediaGrab 采用 [MIT 许可证](./LICENSE)。
+MediaGrab 采用 [MIT 许可证](./LICENSE)。
 
 第三方依赖和随包工具（包括 FFmpeg、LAME 和 yt-dlp）仍遵循各自的许可证，详见对应组件附带的许可证说明。

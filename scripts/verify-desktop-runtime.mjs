@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
-import { readlink, readdir, stat } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
@@ -32,15 +33,14 @@ async function directorySize(directory) {
   return total
 }
 
-async function checkNoAbsoluteSymlinks(directory) {
+async function checkNoSymlinks(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   for (const entry of entries) {
     const file = path.join(directory, entry.name)
     if (entry.isSymbolicLink()) {
-      const target = await readlink(file)
-      if (path.isAbsolute(target)) throw new Error(`runtime 含有绝对 symlink: ${file} -> ${target}`)
+      throw new Error(`runtime 含有可能在应用打包时丢失的 symlink: ${file}`)
     } else if (entry.isDirectory()) {
-      await checkNoAbsoluteSymlinks(file)
+      await checkNoSymlinks(file)
     }
   }
 }
@@ -49,7 +49,7 @@ await mustBeFile(path.join(runtimeDir, nodeName), 'Node runtime')
 await mustBeFile(path.join(runtimeDir, 'dist', 'index.js'), 'server entry')
 await mustBeFile(path.join(runtimeDir, 'web', 'index.html'), 'web entry')
 await mustBeFile(path.join(runtimeDir, 'node_modules', '@mediagrab', 'shared', 'dist', 'index.js'), 'shared runtime')
-await checkNoAbsoluteSymlinks(runtimeDir)
+await checkNoSymlinks(runtimeDir)
 
 const forbidden = ['src', 'scripts', 'download', 'testing', path.join('dist', 'testing')]
 for (const name of forbidden) {
@@ -62,6 +62,53 @@ const runtimeBytes = await directorySize(runtimeDir)
 const runtimeLimit = Number(process.env.MEDIA_GRAB_RUNTIME_LIMIT_MB ?? 180) * 1024 * 1024
 if (runtimeBytes > runtimeLimit) {
   throw new Error(`Node core 体积 ${(runtimeBytes / 1024 / 1024).toFixed(1)} MiB 超过上限 ${(runtimeLimit / 1024 / 1024).toFixed(0)} MiB`)
+}
+
+const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-runtime-check-'))
+try {
+  const isolatedRuntime = path.join(temporaryDir, 'core')
+  await cp(runtimeDir, isolatedRuntime, { recursive: true })
+  await execFileAsync(path.join(isolatedRuntime, nodeName), ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict'
+    import { defaultAppConfig } from '@mediagrab/shared'
+    import { buildApp } from './dist/app.js'
+    const app = await buildApp({ config: defaultAppConfig(), logger: false })
+    try {
+      const address = await app.listen({ host: '127.0.0.1', port: 0 })
+      for (const endpoint of ['/api/health', '/api/config', '/api/accounts', '/api/tasks', '/api/accounts/douyin/cookie', '/api/accounts/xiaohongshu/cookie']) {
+        const response = await fetch(address + endpoint, { headers: { Origin: 'tauri://localhost' } })
+        assert.equal(response.status, 200, endpoint)
+        assert.equal(response.headers.get('access-control-allow-origin'), 'tauri://localhost', endpoint)
+        const body = await response.json()
+        if (endpoint === '/api/health') {
+          assert.equal(body.ok, true)
+          assert.equal(body.web.built, true)
+        }
+      }
+      const preflight = await fetch(address + '/api/config', {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://tauri.localhost', 'Access-Control-Request-Method': 'PATCH', 'Access-Control-Request-Headers': 'content-type' },
+      })
+      assert.equal(preflight.status, 204)
+      assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://tauri.localhost')
+    } finally {
+      await app.close()
+    }
+  `], {
+    cwd: isolatedRuntime,
+    timeout: 30_000,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: '',
+      NODE_PATH: '',
+      DATA_DIR: path.join(temporaryDir, 'data'),
+      DB_PATH: path.join(temporaryDir, 'data', 'mediaGrab.db'),
+      WEB_DIST: path.join(isolatedRuntime, 'web'),
+      MEDIA_TOOLS_DIR: toolsRoot,
+    },
+  })
+} finally {
+  await rm(temporaryDir, { recursive: true, force: true })
 }
 
 await mustBeFile(path.join(toolsDir, `ffmpeg${toolSuffix}`), 'bundled FFmpeg')
@@ -99,6 +146,7 @@ if (!manifest.ffmpeg?.version || !ffmpeg.stdout.includes(`ffmpeg version ${manif
 if (ytdlp.stdout.trim() !== manifest.ytDlp?.version) throw new Error('yt-dlp 实际版本与工具 manifest 不一致。')
 console.log(JSON.stringify({
   target: `${process.platform}-${process.arch}`,
+  isolatedRuntime: 'ok',
   runtimeMiB: Number((runtimeBytes / 1024 / 1024).toFixed(1)),
   toolsMiB: Number((toolsBytes / 1024 / 1024).toFixed(1)),
   ffmpeg: ffmpeg.stdout.split('\n', 1)[0]?.trim() ?? '',

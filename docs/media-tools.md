@@ -33,6 +33,13 @@ The release preflight rejects packages over `180 MiB` for the Node core or
 media tools by default; override only for a documented target-specific reason
 with `MEDIA_GRAB_RUNTIME_LIMIT_MB` or `MEDIA_GRAB_TOOLS_LIMIT_MB`.
 
+Runtime dependencies are copied as real files rather than pnpm symlinks,
+which can be lost when Tauri collects application resources. The preflight
+rejects remaining symlinks and copies the runtime outside the workspace to
+start an isolated server, check its API endpoints, and verify desktop-origin
+CORS access. This prevents repository dependencies from hiding missing files
+in a release bundle.
+
 ## Resource layout
 
 ```text
@@ -154,9 +161,9 @@ workflow injects them into `resources/media-tools` before `tauri build`.
 
 ## Remaining release work
 
-- Build or obtain reproducible FFmpeg artifacts for macOS, Windows, and Linux.
-- Record per-target checksums, versions, FFmpeg configure flags, and license
-  notices in the release matrix.
+- Run the [desktop CI workflow](./desktop-ci.md) on all supported runners and
+  confirm the uploaded installers. It compiles FFmpeg/LAME from fixed source
+  archives and records per-target checksums, versions, build flags and notices.
 - Test service lifecycle, resource lookup, and core log rotation on each OS.
 - Add About/diagnostic output for tool version, path, architecture, and license.
 - Run a real installed-package download test for each target.

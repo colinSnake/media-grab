@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import fastifyStatic from '@fastify/static'
+import fastifyCors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { AppConfig } from '@mediagrab/shared'
 import { httpStatusOf, toApiErrorBody } from './lib/errors.js'
@@ -45,6 +46,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const status = httpStatusOf(err)
     if (status >= 500) req.log.error({ err }, '请求处理失败')
     return reply.status(status).type('application/json').send(toApiErrorBody(err))
+  })
+
+  await app.register(fastifyCors, {
+    origin: ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'],
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
   })
 
   const ownsServices = options.services === undefined

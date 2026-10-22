@@ -44,6 +44,7 @@ interface YtDlpInfo {
   uploader?: string
   channel?: string
   thumbnail?: string
+  thumbnails?: Array<{ url?: string; width?: number; height?: number }>
   duration?: number
   webpage_url?: string
   extractor_key?: string
@@ -63,6 +64,19 @@ function normalizeCoverUrl(url: string): string {
   } catch {
     return ''
   }
+}
+
+function coverFromInfo(info: YtDlpInfo): string {
+  const candidates = [
+    ...(isPresent(info.thumbnail) ? [{ url: info.thumbnail }] : []),
+    ...(info.thumbnails ?? []).filter((item) => isPresent(item.url)),
+  ]
+  const best = candidates.sort((left, right) => {
+    const leftArea = (left.width ?? 0) * (left.height ?? 0)
+    const rightArea = (right.width ?? 0) * (right.height ?? 0)
+    return rightArea - leftArea
+  })[0]
+  return normalizeCoverUrl(best?.url ?? '')
 }
 
 function safeFormatHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
@@ -233,7 +247,7 @@ export class YtDlpAdapter {
       id: String(info.id ?? info.webpage_url ?? input),
       title: info.title ?? '',
       authorName: info.uploader ?? info.channel ?? '',
-      cover: normalizeCoverUrl(info.thumbnail ?? ''),
+      cover: coverFromInfo(info),
       durationSec: Math.max(0, Math.round(info.duration ?? 0)),
       streams,
       itemCount: 1,
@@ -245,7 +259,7 @@ export class YtDlpAdapter {
 export async function checkYtDlp(candidate = ''): Promise<{ available: boolean; path: string; version: string; error: string }> {
   const executable = candidate.trim() || defaultYtDlpExecutable()
   try {
-    const result = await execFileAsync(executable, ['--version'], { timeout: 5_000 })
+    const result = await execFileAsync(executable, ['--version'], { timeout: 30_000 })
     return { available: true, path: executable, version: result.stdout.trim(), error: '' }
   } catch (error) {
     if (candidate.trim() === '' && /not found|enoent|cannot find/i.test(error instanceof Error ? error.message : String(error))) {

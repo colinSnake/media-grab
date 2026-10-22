@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url'
 const execFileAsync = promisify(execFile)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const target = `${process.platform}-${process.arch}`
-const inputDirectory = path.join(root, '.release-tools', target)
+const inputDirectory = process.env.MEDIA_GRAB_RELEASE_INPUTS_DIR?.trim()
+  ? path.resolve(process.env.MEDIA_GRAB_RELEASE_INPUTS_DIR)
+  : path.join(root, '.release-tools', target)
 const inputConfig = path.join(inputDirectory, 'release-inputs.json')
 const savedInputs = await readFile(inputConfig, 'utf8').then(JSON.parse).catch((error) => {
   if (error.code === 'ENOENT') return {}

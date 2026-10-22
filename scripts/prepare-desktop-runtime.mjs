@@ -13,6 +13,14 @@ const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const nodeSource = process.env.MEDIA_GRAB_NODE_BIN?.trim() || process.execPath
 
 function run(command, args, env = {}) {
+  if (command === 'pnpm') {
+    const pnpmExecutable = process.env.npm_execpath
+    if (pnpmExecutable) {
+      const isJavaScriptEntrypoint = /\.(?:c?js)$/i.test(pnpmExecutable)
+      command = isJavaScriptEntrypoint ? process.execPath : pnpmExecutable
+      if (isJavaScriptEntrypoint) args = [pnpmExecutable, ...args]
+    }
+  }
   execFileSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } })
 }
 
@@ -32,23 +40,6 @@ async function normalizeDeployLinks(directory) {
       continue
     }
     if (entry.isDirectory()) await normalizeDeployLinks(entryPath)
-  }
-}
-
-async function rewriteRuntimeLinks(directory) {
-  const entries = await readdir(directory, { withFileTypes: true })
-  for (const entry of entries) {
-    const entryPath = path.join(directory, entry.name)
-    if (entry.isSymbolicLink()) {
-      const rawTarget = await readlink(entryPath)
-      if (path.isAbsolute(rawTarget) && rawTarget.startsWith(`${deployDir}${path.sep}`)) {
-        const runtimeTarget = path.join(runtimeDir, path.relative(deployDir, rawTarget))
-        await rm(entryPath, { force: true })
-        await symlink(path.relative(path.dirname(entryPath), runtimeTarget), entryPath)
-      }
-      continue
-    }
-    if (entry.isDirectory()) await rewriteRuntimeLinks(entryPath)
   }
 }
 
@@ -76,7 +67,7 @@ run('pnpm', ['build:web'])
 await mkdir(runtimeDir, { recursive: true })
 
 console.log('收集 server 生产依赖 ...')
-run('pnpm', ['--filter', '@mediagrab/server', 'deploy', deployDir, '--prod', '--legacy'], { PNPM_NODE_LINKER: 'hoisted' })
+run('pnpm', ['--filter', '@mediagrab/server', 'deploy', deployDir, '--prod', '--legacy', '--config.node-linker=hoisted'])
 
 // pnpm deploy keeps a self-link for the workspace package. It is useless at
 // runtime and points outside the deploy directory, so remove it before
@@ -95,7 +86,7 @@ try {
     if (entry !== 'README.md') await rm(path.join(runtimeDir, entry), { recursive: true, force: true })
   }
   for (const entry of await (await import('node:fs/promises')).readdir(deployDir)) {
-    await cp(path.join(deployDir, entry), path.join(runtimeDir, entry), { recursive: true })
+    await cp(path.join(deployDir, entry), path.join(runtimeDir, entry), { recursive: true, dereference: true })
   }
   for (const entry of ['src', 'scripts', 'download', 'testing', 'tsconfig.json', 'vitest.config.ts']) {
     await rm(path.join(runtimeDir, entry), { recursive: true, force: true })
@@ -111,7 +102,6 @@ try {
   await cp(webDist, path.join(runtimeDir, 'web'), { recursive: true })
   await cp(nodeSource, path.join(runtimeDir, nodeName))
   if (process.platform !== 'win32') await chmod(path.join(runtimeDir, nodeName), 0o755)
-  await rewriteRuntimeLinks(runtimeDir)
   await removeMatchingFiles(path.join(runtimeDir, 'node_modules'), (name) =>
     /\.(?:d\.ts|map)$/.test(name) || /^(?:readme|changelog|changes|history)(?:\.|$)/i.test(name),
   )

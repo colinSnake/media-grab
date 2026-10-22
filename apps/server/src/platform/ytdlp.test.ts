@@ -107,6 +107,27 @@ describe('YtDlpAdapter', () => {
     expect(result.capabilities).toMatchObject({ video: true, audio: true, download: true })
   })
 
+  it('thumbnail 缺失时从最高分辨率 thumbnails 兜底取封面', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'xiaohongshu',
+      exec: async () => ({
+        stdout: JSON.stringify({
+          id: 'note-with-thumbnails',
+          thumbnails: [
+            { url: 'http://sns-webpic-qc.xhscdn.com/small.jpg', width: 480, height: 640 },
+            { url: 'http://sns-webpic-qc.xhscdn.com/large.jpg', width: 1440, height: 1921 },
+          ],
+          formats: [],
+        }),
+        stderr: '',
+      }),
+    })
+
+    const result = await adapter.parse('https://www.xiaohongshu.com/explore/note-with-thumbnails')
+
+    expect(result.cover).toBe('https://sns-webpic-qc.xhscdn.com/large.jpg')
+  })
+
   it('可将找不到可执行文件转换为明确的工具缺失错误', async () => {
     const adapter = new YtDlpAdapter({
       platform: 'xiaohongshu',

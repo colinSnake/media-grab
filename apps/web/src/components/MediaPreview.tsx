@@ -1,6 +1,7 @@
 import { ArrowDownToLine, Check, FileVideo2, Music2, Pause, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { platformLabel, type MediaParseResult, type ParseResult, type Platform, type QualityAvailability } from '@mediagrab/shared'
+import { apiUrl } from '../api'
 import { PlatformLogo } from './PlatformLogo'
 
 interface MediaPreviewProps {
@@ -26,7 +27,7 @@ function qualityLabel(item: QualityAvailability): string {
 }
 
 function coverProxyUrl(cover: string): string {
-  return `/api/cover?url=${encodeURIComponent(cover)}`
+  return apiUrl(`/api/cover?url=${encodeURIComponent(cover)}`)
 }
 
 function MediaCover({ cover, durationSec, videoUrl, platform }: { cover: string; durationSec: number; videoUrl?: string; platform: Platform }) {
