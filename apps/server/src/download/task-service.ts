@@ -9,26 +9,23 @@ import type {
   CreateTaskRequest,
   CreateTaskResponse,
   DownloadMode,
-  StreamSummary,
   TaskSnapshot,
   MediaStream,
   WsMessage,
 } from '@mediagrab/shared'
-import { isCancellable, isTerminal, taskDedupeKey } from '@mediagrab/shared'
+import { isCancellable, isTerminal, parseMediaInput, taskDedupeKey } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
-import type { BiliClient } from '../bili/client.js'
 import type { PlatformRegistry } from '../platform/registry.js'
 import type { ConfigStore } from '../lib/config-store.js'
 import type { TaskRepository } from '../store/repositories.js'
 import { resolveDataDir, resolveDownloadDir } from '../paths.js'
-import { DEFAULT_USER_AGENT, biliVideoReferer } from '../bili/http.js'
+import { DEFAULT_USER_AGENT } from '../bili/http.js'
 import { checkFfmpeg, type FfmpegStatus } from './ffmpeg.js'
 
 interface TaskServiceOptions {
   repo: TaskRepository
-  bili: BiliClient
   platforms: PlatformRegistry
   media: import('../platform/registry.js').MediaRegistry
   config: ConfigStore
@@ -65,7 +62,7 @@ function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
   const now = Date.now()
   return {
     id: randomUUID(),
-    platform: request.platform,
+    platform: request.platform ?? 'bilibili',
     input: request.input ?? '',
     sourceId: '',
     bvid: request.bvid ?? '',
@@ -90,7 +87,6 @@ function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
 
 export class TaskService {
   readonly #repo: TaskRepository
-  readonly #bili: BiliClient
   readonly #platforms: PlatformRegistry
   readonly #media: import('../platform/registry.js').MediaRegistry
   readonly #config: ConfigStore
@@ -105,7 +101,6 @@ export class TaskService {
 
   constructor(options: TaskServiceOptions) {
     this.#repo = options.repo
-    this.#bili = options.bili
     this.#platforms = options.platforms
     this.#media = options.media
     this.#config = options.config
@@ -136,6 +131,18 @@ export class TaskService {
 
   async create(request: CreateTaskRequest): Promise<CreateTaskResponse> {
     const task = initialSnapshot(request)
+    const detected = task.input === '' ? undefined : parseMediaInput(task.input)
+    if (detected !== undefined) {
+      if (detected.ok) {
+        if (detected.value.platform === 'unknown') throw new ApiError('INVALID_TASK', '无法识别媒体来源', 'invalid', 400)
+        if (request.platform !== undefined && request.platform !== detected.value.platform) {
+          throw new ApiError('INVALID_TASK', '任务来源与媒体链接平台不一致', 'invalid', 400)
+        }
+        if (request.platform === undefined) task.platform = detected.value.platform
+      } else if (request.platform === undefined) {
+        throw new ApiError('INVALID_TASK', detected.reason, 'invalid', 400)
+      }
+    }
     if (task.platform === 'bilibili' && (task.bvid === '' || task.cid === 0)) {
       if (task.input === '') {
         throw new ApiError('INVALID_TASK', '任务缺少 B站链接或 bvid/cid', 'invalid', 400)
@@ -149,15 +156,16 @@ export class TaskService {
     } else if (task.platform !== 'bilibili') {
       if (task.input === '') throw new ApiError('INVALID_TASK', '任务缺少媒体链接', 'invalid', 400)
       const parsed = await this.#media.parse(task.input)
+      if (parsed.platform !== task.platform) throw new ApiError('INVALID_TASK', '解析结果与任务来源不一致', 'invalid', 400)
       task.sourceId = parsed.id
       task.title = task.title || parsed.title
       task.input = parsed.input
       const requestedStream = parsed.streams.find((stream) => stream.id === task.streamId)
       const selectedKind = task.mode === 'audio' ? 'audio' : 'video'
-      if (requestedStream?.kind !== selectedKind) {
+      if (requestedStream?.kind !== selectedKind || requestedStream.available !== true) {
         const preferred = task.mode === 'audio'
-          ? parsed.streams.find((stream) => stream.kind === 'audio')
-          : parsed.streams.find((stream) => stream.kind === 'video' && (task.mode !== 'video+audio' || stream.combined)) ?? parsed.streams.find((stream) => stream.kind === 'video')
+          ? parsed.streams.find((stream) => stream.kind === 'audio' && stream.available)
+          : parsed.streams.find((stream) => stream.kind === 'video' && stream.available && (task.mode !== 'video+audio' || stream.combined)) ?? parsed.streams.find((stream) => stream.kind === 'video' && stream.available)
         task.streamId = preferred?.id
       }
       const selected = parsed.streams.find((stream) => stream.id === task.streamId)
@@ -301,15 +309,13 @@ export class TaskService {
       await rm(workDir, { recursive: true, force: true })
       await mkdir(workDir, { recursive: true })
       task = this.save(task, { status: 'downloading', phase: 'pending', error: '' })
-      const bundle = task.platform === 'bilibili' ? await this.#bili.playurl(task.bvid, task.cid, { signal: controller.signal }) : undefined
-      const generic = task.platform === 'bilibili' ? undefined : await this.#media.parse(task.input)
-      const genericVideo = generic === undefined || task.mode === 'audio' ? undefined : this.pickGenericVideo(generic.streams, task)
-      const genericAudio = generic === undefined || task.mode === 'video' || (task.mode === 'video+audio' && genericVideo?.combined === true) ? undefined : this.pickGenericAudio(generic.streams, task)
-      const genericStream = genericVideo ?? genericAudio
-      const video = genericVideo ?? (task.platform === 'bilibili' ? this.pickVideo(bundle?.video ?? [], task) : undefined)
-      const audio = genericAudio ?? (task.platform === 'bilibili' ? bundle?.audio[0] : undefined)
+      if (task.platform === 'unknown') throw new ApiError('INVALID_TASK', '任务来源未知，无法下载', 'invalid', 400)
+      const streams = await this.loadStreams(task, controller)
+      const video = task.mode === 'audio' ? undefined : this.pickGenericVideo(streams, task)
+      const audio = task.mode === 'video' || (task.mode === 'video+audio' && video?.combined === true) ? undefined : this.pickGenericAudio(streams, task)
+      const selectedStream = video ?? audio
       if (task.mode !== 'audio' && video === undefined) throw new ApiError('NO_VIDEO_STREAM', '没有找到可下载的视频流', 'permission', 403)
-      const separateAudioRequired = task.mode !== 'video' && genericVideo?.combined !== true
+      const separateAudioRequired = task.mode !== 'video' && video?.combined !== true
       if (separateAudioRequired && audio === undefined) throw new ApiError('NO_AUDIO_STREAM', '没有找到可下载的音频流', 'permission', 403)
 
       let videoPath: string | undefined
@@ -334,9 +340,9 @@ export class TaskService {
       outputTemp = path.join(targetDir, `.${fileName}.${id}.tmp`)
       task = this.save(this.#repo.get(id) ?? task, { phase: task.mode === 'video+audio' || (task.mode === 'audio' && task.audioContainer === 'mp3') ? 'merge' : 'done' })
 
-      if (task.platform !== 'bilibili' && genericStream !== undefined) {
+      if (selectedStream !== undefined) {
         const genericPath = videoPath ?? audioPath ?? ''
-        if (task.mode === 'video+audio' && genericVideo?.combined !== true && videoPath !== undefined && audioPath !== undefined) {
+        if (task.mode === 'video+audio' && video?.combined !== true && videoPath !== undefined && audioPath !== undefined) {
           await this.runFfmpeg([
             '-i', videoPath,
             '-i', audioPath,
@@ -353,26 +359,8 @@ export class TaskService {
         } else {
           await this.copyFile(genericPath, outputTemp)
         }
-      } else if (task.mode === 'video+audio') {
-        await this.runFfmpeg([
-          '-i', videoPath ?? '',
-          '-i', audioPath ?? '',
-          '-map', '0:v:0',
-          '-map', '1:a:0',
-          '-c:v', 'copy',
-          '-c:a', 'copy',
-          '-shortest',
-          '-movflags', '+faststart',
-          '-y', outputTemp,
-        ], controller)
-      } else if (task.mode === 'audio' && task.audioContainer === 'mp3') {
-        await this.runFfmpeg([ '-i', audioPath ?? '', '-vn', '-c:a', 'libmp3lame', '-b:a', `${config.audioBitrateKbps}k`, '-y', outputTemp ], controller)
-      } else if (task.mode === 'video') {
-        await this.runFfmpeg([ '-i', videoPath ?? '', '-c', 'copy', '-movflags', '+faststart', '-y', outputTemp ], controller)
-      } else if (task.mode === 'audio') {
-        await this.runFfmpeg([ '-i', audioPath ?? '', '-vn', '-c:a', 'copy', '-y', outputTemp ], controller)
       } else {
-        await this.copyFile(videoPath ?? audioPath ?? '', outputTemp)
+        throw new ApiError('OUTPUT_MISSING', '下载结果不存在', 'fatal', 500)
       }
 
       if (!existsSync(outputTemp) || (await stat(outputTemp)).size === 0) {
@@ -392,36 +380,69 @@ export class TaskService {
     }
   }
 
-  private pickVideo(streams: readonly StreamSummary[], task: TaskSnapshot): StreamSummary | undefined {
-    if (task.qn !== undefined) return streams.find((stream) => stream.id === task.qn) ?? streams[0]
-    return streams[0]
-  }
-
   private pickGenericVideo(streams: readonly MediaStream[], task: TaskSnapshot): MediaStream | undefined {
+    const available = streams.filter((stream) => stream.available)
     if (task.streamId !== undefined) {
-      const selected = streams.find((stream) => stream.id === task.streamId && stream.kind === 'video')
+      const selected = available.find((stream) => stream.id === task.streamId && stream.kind === 'video')
       if (selected !== undefined) return selected
     }
-    return streams.find((stream) => stream.kind === 'video' && (task.mode !== 'video+audio' || stream.combined)) ?? streams.find((stream) => stream.kind === 'video')
+    if (task.qn !== undefined) {
+      const selected = available.find((stream) => stream.id === `video:${task.qn}` || stream.id === String(task.qn))
+      if (selected !== undefined) return selected
+    }
+    return available.find((stream) => stream.kind === 'video' && (task.mode !== 'video+audio' || stream.combined)) ?? available.find((stream) => stream.kind === 'video')
+  }
+
+  private async loadStreams(task: TaskSnapshot, controller: AbortController): Promise<MediaStream[]> {
+    const media = this.#media as unknown as {
+      streamsForDownload?: (options: { platform: Exclude<TaskSnapshot['platform'], 'unknown'>; input: string; bvid?: string; cid?: number; signal?: AbortSignal }) => Promise<MediaStream[]>
+    }
+    if (media.streamsForDownload !== undefined) {
+      if (task.platform === 'unknown') throw new ApiError('INVALID_TASK', '任务来源未知，无法下载', 'invalid', 400)
+      return media.streamsForDownload({ platform: task.platform, input: task.input, bvid: task.bvid, cid: task.cid, signal: controller.signal })
+    }
+    const parsed = await this.#media.parse(task.input)
+    return parsed.streams
   }
 
   private pickGenericAudio(streams: readonly MediaStream[], task: TaskSnapshot): MediaStream | undefined {
-    if (task.mode === 'audio' && task.streamId !== undefined) return streams.find((stream) => stream.id === task.streamId && stream.kind === 'audio')
-    return streams.find((stream) => stream.kind === 'audio')
+    const available = streams.filter((stream) => stream.available)
+    if (task.mode === 'audio' && task.streamId !== undefined) return available.find((stream) => stream.id === task.streamId && stream.kind === 'audio')
+    return available.find((stream) => stream.kind === 'audio')
   }
 
   private async downloadStream(
-    stream: StreamSummary | MediaStream,
+    stream: MediaStream,
     target: string,
     task: TaskSnapshot,
     controller: AbortController,
     phase: 'video' | 'audio',
   ): Promise<void> {
-    const response = await this.#fetch(stream.url, {
-      headers: { Referer: task.platform === 'bilibili' ? biliVideoReferer(task.bvid) : task.input, 'User-Agent': DEFAULT_USER_AGENT },
-      signal: controller.signal,
-    })
-    if (!response.ok || response.body === null) throw new ApiError('STREAM_FETCH_FAILED', `取流失败（HTTP ${response.status}）`, 'network', 502)
+    const formatHeaders = 'httpHeaders' in stream ? stream.httpHeaders ?? {} : {}
+    const headers = new Headers({ 'User-Agent': DEFAULT_USER_AGENT })
+    for (const [name, value] of Object.entries(formatHeaders)) headers.set(name, value)
+    if (!headers.has('referer')) headers.set('Referer', task.input)
+    const urls = [...new Set([stream.url, ...stream.backupUrls])]
+    let response: Response | undefined
+    let lastError: unknown
+    for (const url of urls) {
+      try {
+        const candidate = await this.#fetch(url, { headers, signal: controller.signal })
+        if (candidate.ok && candidate.body !== null) {
+          response = candidate
+          break
+        }
+        await candidate.body?.cancel().catch(() => {})
+        lastError = new Error(`HTTP ${candidate.status}`)
+      } catch (error) {
+        if (controller.signal.aborted) throw error
+        lastError = error
+      }
+    }
+    if (response === undefined || response.body === null) {
+      const detail = lastError instanceof Error ? lastError.message : '未知错误'
+      throw new ApiError('STREAM_FETCH_FAILED', `取流失败（${detail}）`, 'network', 502)
+    }
     const total = Number(response.headers.get('content-length') ?? 0)
     const phaseBaseBytes = this.#repo.get(task.id)?.totalBytes ?? 0
     const file = createWriteStream(target)

@@ -1,4 +1,4 @@
-import { accountIdParamsSchema, biliAccountImportSchema, douyinCookieSchema } from '@mediagrab/shared'
+import { accountIdParamsSchema, biliAccountImportSchema, cookieAccountParamsSchema, platformCookieSchema } from '@mediagrab/shared'
 import type { FastifyPluginAsync } from 'fastify'
 import type { Services } from '../services.js'
 import { parseBody } from '../lib/validate.js'
@@ -42,29 +42,21 @@ export const sessionRoutes: FastifyPluginAsync<SessionRoutesDeps> = async (app, 
 
   app.get('/api/accounts', async () => ({ accounts: opts.services.accountService.list() }))
 
-  app.get('/api/accounts/douyin/cookie', async () => ({ configured: opts.services.accountService.douyinCookieConfigured() }))
+  app.get('/api/accounts/:platform/cookie', async (req) => {
+    const { platform } = parseBody(cookieAccountParamsSchema, req.params)
+    return { configured: opts.services.accountService.cookieConfigured(platform) }
+  })
 
-  app.post('/api/accounts/douyin/cookie', async (req) => {
-    const body = parseBody(douyinCookieSchema, req.body)
-    opts.services.accountService.saveDouyinCookie(body.cookie)
+  app.post('/api/accounts/:platform/cookie', async (req) => {
+    const { platform } = parseBody(cookieAccountParamsSchema, req.params)
+    const body = parseBody(platformCookieSchema, req.body)
+    opts.services.accountService.saveCookie(platform, body.cookie)
     return { configured: true }
   })
 
-  app.delete('/api/accounts/douyin/cookie', async () => {
-    opts.services.accountService.clearDouyinCookie()
-    return { configured: false }
-  })
-
-  app.get('/api/accounts/xiaohongshu/cookie', async () => ({ configured: opts.services.accountService.xiaohongshuCookieConfigured() }))
-
-  app.post('/api/accounts/xiaohongshu/cookie', async (req) => {
-    const body = parseBody(douyinCookieSchema, req.body)
-    opts.services.accountService.saveXiaohongshuCookie(body.cookie)
-    return { configured: true }
-  })
-
-  app.delete('/api/accounts/xiaohongshu/cookie', async () => {
-    opts.services.accountService.clearXiaohongshuCookie()
+  app.delete('/api/accounts/:platform/cookie', async (req) => {
+    const { platform } = parseBody(cookieAccountParamsSchema, req.params)
+    opts.services.accountService.clearCookie(platform)
     return { configured: false }
   })
 

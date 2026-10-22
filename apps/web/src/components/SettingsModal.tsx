@@ -1,14 +1,19 @@
 import { Check, LoaderCircle, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
-import type { AccountPlatform, AccountSummary, AppConfigPatch, DownloadMode } from '@mediagrab/shared'
+import type { AccountPlatform, AccountSummary, AppConfigPatch, CookieAccountPlatform, CookieStatus, DownloadMode } from '@mediagrab/shared'
 import { modeOptions } from '../lib/options'
+import { platformLabel } from '@mediagrab/shared'
+import { PlatformLogo } from './PlatformLogo'
+
+type SettingsAccountPlatform = AccountPlatform | 'youtube'
+type CookieAccountState = CookieStatus & { cookie: string; saving: boolean }
 
 interface SettingsModalProps {
   open: boolean
   draft: AppConfigPatch
   onDraftChange: (patch: AppConfigPatch) => void
   accounts: AccountSummary[]
-  activeAccountPlatform: AccountPlatform
-  onAccountPlatformChange: (platform: AccountPlatform) => void
+  activeAccountPlatform: SettingsAccountPlatform
+  onAccountPlatformChange: (platform: SettingsAccountPlatform) => void
   accountCookie: string
   isSavingAccount: boolean
   onAccountCookieChange: (value: string) => void
@@ -18,18 +23,10 @@ interface SettingsModalProps {
   onActivateAccount: (id: string) => void
   onVerifyAccount: (id: string) => void
   onDeleteAccount: (id: string) => void
-  douyinCookieConfigured: boolean
-  douyinCookie: string
-  isSavingDouyinCookie: boolean
-  onDouyinCookieChange: (value: string) => void
-  onSaveDouyinCookie: () => void
-  onClearDouyinCookie: () => void
-  xiaohongshuCookieConfigured: boolean
-  xiaohongshuCookie: string
-  isSavingXiaohongshuCookie: boolean
-  onXiaohongshuCookieChange: (value: string) => void
-  onSaveXiaohongshuCookie: () => void
-  onClearXiaohongshuCookie: () => void
+  cookieAccounts: Record<CookieAccountPlatform, CookieAccountState>
+  onCookieChange: (platform: CookieAccountPlatform, value: string) => void
+  onSaveCookie: (platform: CookieAccountPlatform) => void
+  onClearCookie: (platform: CookieAccountPlatform) => void
 }
 
 export function SettingsModal({
@@ -48,18 +45,10 @@ export function SettingsModal({
   onActivateAccount,
   onVerifyAccount,
   onDeleteAccount,
-  douyinCookieConfigured,
-  douyinCookie,
-  isSavingDouyinCookie,
-  onDouyinCookieChange,
-  onSaveDouyinCookie,
-  onClearDouyinCookie,
-  xiaohongshuCookieConfigured,
-  xiaohongshuCookie,
-  isSavingXiaohongshuCookie,
-  onXiaohongshuCookieChange,
-  onSaveXiaohongshuCookie,
-  onClearXiaohongshuCookie,
+  cookieAccounts,
+  onCookieChange,
+  onSaveCookie,
+  onClearCookie,
 }: SettingsModalProps) {
   if (!open) return null
 
@@ -82,7 +71,8 @@ export function SettingsModal({
               ['bilibili', 'B站'],
               ['douyin', '抖音'],
               ['xiaohongshu', '小红书'],
-            ] as const).map(([platform, label]) => <button key={platform} type="button" role="tab" aria-selected={activeAccountPlatform === platform} className={activeAccountPlatform === platform ? 'active' : ''} onClick={() => onAccountPlatformChange(platform)}>{label}</button>)}
+              ['youtube', 'YouTube'],
+            ] as const).map(([platform, label]) => <button key={platform} type="button" role="tab" data-platform={platform} aria-selected={activeAccountPlatform === platform} className={activeAccountPlatform === platform ? 'active' : ''} onClick={() => onAccountPlatformChange(platform)}><PlatformLogo platform={platform} /><span>{label}</span></button>)}
           </div>
           {activeAccountPlatform === 'bilibili' && <div className="platform-account-panel">
           <div className="account-section-heading"><div><h3><UserRound /> B站</h3></div></div>
@@ -96,21 +86,21 @@ export function SettingsModal({
           <label className="field-label">B站 Cookie<textarea className="account-cookie-input" value={accountCookie} onChange={(event) => onAccountCookieChange(event.target.value)} placeholder="粘贴 B站 Cookie，需包含 SESSDATA" /></label>
           <div className="platform-cookie-actions"><button className="account-import-button" type="button" onClick={onSaveAccount} disabled={isSavingAccount || accountCookie.trim() === ''}>{isSavingAccount ? <LoaderCircle className="spin" /> : <ShieldCheck />}<span>{isSavingAccount ? '正在保存' : '保存'}</span></button></div>
           </div>}
-          {activeAccountPlatform === 'douyin' && <div className="platform-account-panel">
-            <div className="account-section-heading"><div><h3><UserRound /> 抖音</h3></div></div>
-            <label className="field-label">抖音 Cookie<textarea className="account-cookie-input" value={douyinCookie} onChange={(event) => onDouyinCookieChange(event.target.value)} placeholder="粘贴 Cookie 请求头，或 Netscape Cookie 文件内容" /></label>
-            <div className="platform-cookie-actions">
-              <button className="account-import-button" type="button" onClick={onSaveDouyinCookie} disabled={isSavingDouyinCookie || douyinCookie.trim() === ''}>{isSavingDouyinCookie ? <LoaderCircle className="spin" /> : <ShieldCheck />}<span>{isSavingDouyinCookie ? '正在保存' : '保存'}</span></button>
-              {douyinCookieConfigured && <button className="account-action danger" type="button" title="清除抖音 Cookie" aria-label="清除抖音 Cookie" onClick={onClearDouyinCookie}><Trash2 /></button>}
+          {(activeAccountPlatform === 'douyin' || activeAccountPlatform === 'xiaohongshu') && (() => {
+            const platform = activeAccountPlatform
+            const account = cookieAccounts[platform]
+            return <div className="platform-account-panel">
+              <div className="account-section-heading"><div><h3><PlatformLogo platform={platform} /> {platformLabel[platform]}</h3></div></div>
+              <label className="field-label">{platformLabel[platform]} Cookie<textarea className="account-cookie-input" value={account.cookie} onChange={(event) => onCookieChange(platform, event.target.value)} placeholder="粘贴 Cookie 请求头，或 Netscape Cookie 文件内容" /></label>
+              <div className="platform-cookie-actions">
+                <button className="account-import-button" type="button" onClick={() => onSaveCookie(platform)} disabled={account.saving || account.cookie.trim() === ''}>{account.saving ? <LoaderCircle className="spin" /> : <ShieldCheck />}<span>{account.saving ? '正在保存' : '保存'}</span></button>
+                {account.configured && <button className="account-action danger" type="button" title={`清除${platformLabel[platform]} Cookie`} aria-label={`清除${platformLabel[platform]} Cookie`} onClick={() => onClearCookie(platform)}><Trash2 /></button>}
+              </div>
             </div>
-          </div>}
-          {activeAccountPlatform === 'xiaohongshu' && <div className="platform-account-panel">
-            <div className="account-section-heading"><div><h3><UserRound /> 小红书</h3></div></div>
-            <label className="field-label">小红书 Cookie<textarea className="account-cookie-input" value={xiaohongshuCookie} onChange={(event) => onXiaohongshuCookieChange(event.target.value)} placeholder="粘贴 Cookie 请求头，或 Netscape Cookie 文件内容" /></label>
-            <div className="platform-cookie-actions">
-              <button className="account-import-button" type="button" onClick={onSaveXiaohongshuCookie} disabled={isSavingXiaohongshuCookie || xiaohongshuCookie.trim() === ''}>{isSavingXiaohongshuCookie ? <LoaderCircle className="spin" /> : <ShieldCheck />}<span>{isSavingXiaohongshuCookie ? '正在保存' : '保存'}</span></button>
-              {xiaohongshuCookieConfigured && <button className="account-action danger" type="button" title="清除小红书 Cookie" aria-label="清除小红书 Cookie" onClick={onClearXiaohongshuCookie}><Trash2 /></button>}
-            </div>
+          })()}
+          {activeAccountPlatform === 'youtube' && <div className="platform-account-panel">
+            <div className="account-section-heading"><div><h3><PlatformLogo platform="youtube" /> YouTube</h3></div></div>
+            <p className="platform-account-note">YouTube 当前通过 yt-dlp 解析公开内容，无需在这里配置账号 Cookie。</p>
           </div>}
           </div>
         </div>

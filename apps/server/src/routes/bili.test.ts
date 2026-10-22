@@ -384,4 +384,15 @@ describe('抖音 Cookie API', () => {
     const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/xiaohongshu/cookie' })
     expect(cleared.json()).toEqual({ configured: false })
   })
+
+  it('Cookie 平台参数只接受目录支持的来源', async () => {
+    const { app: instance } = await setup()
+    const saved = await instance.inject({
+      method: 'POST',
+      url: '/api/accounts/youtube/cookie',
+      payload: { cookie: 'sessionid=ignored' },
+    })
+    expect(saved.statusCode).toBe(400)
+    expect(saved.json()).toMatchObject({ error: { code: 'INVALID_INPUT' } })
+  })
 })

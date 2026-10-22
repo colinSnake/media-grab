@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
@@ -7,7 +7,9 @@ import {
   ArrowRight,
   Check,
   Clock3,
+  ChevronDown,
   FolderDown,
+  Globe2,
   Link2,
   ListChecks,
   LoaderCircle,
@@ -23,16 +25,19 @@ import {
 } from 'lucide-react'
 import type {
   AccountSummary,
+  AccountPlatform,
   AppConfig,
   AppConfigPatch,
   AudioContainer,
+  CookieAccountPlatform,
   DownloadMode,
   MediaParseResult,
   ParseResult,
+  Platform,
   TaskSnapshot,
 } from '@mediagrab/shared'
-import { taskDedupeKey } from '@mediagrab/shared'
-import { activateAccount, cancelTask, clearDouyinCookie, clearXiaohongshuCookie, createTask, getAccounts, getConfig, getDouyinCookieStatus, getExtractorStatus, getHealth, getTasks, getXiaohongshuCookieStatus, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveDouyinCookie, saveXiaohongshuCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
+import { detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
+import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo.svg'
 import { TaskRow } from './components/TaskRow'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
@@ -42,8 +47,9 @@ import { MediaPreview } from './components/MediaPreview'
 import { PlatformLogo } from './components/PlatformLogo'
 import { modeOptions } from './lib/options'
 
-type Platform = '全部' | 'B站' | '抖音' | '小红书'
-type AccountPlatform = 'bilibili' | 'douyin' | 'xiaohongshu'
+type HistoryPlatformFilter = Platform | 'all'
+type SettingsAccountPlatform = AccountPlatform | 'youtube'
+type CookieAccountState = { cookie: string; configured: boolean; saving: boolean }
 type WorkspaceView = 'new' | 'queue' | 'history'
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -54,6 +60,12 @@ const themeLabels: Record<ThemeMode, string> = {
   light: '浅色主题',
   dark: '深色主题',
 }
+
+const sourcePlatforms = platformCatalog.filter((platform) => platform.parse)
+const defaultPlatform = sourcePlatforms[0]?.platform ?? 'bilibili'
+const heroTitlePrimary = '把喜欢的内容，'
+const heroTitleAccent = '带回本地。'
+const heroTitle = `${heroTitlePrimary}${heroTitleAccent}`
 
 function coreStatusTooltip(health: HealthResponse | null, extractor: ExtractorStatus | null): string {
   if (health === null) return '本地核心 · 连接失败'
@@ -79,20 +91,6 @@ function isTauriDesktop(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
-const platformOptions: { label: Platform; tone: string; hint: string }[] = [
-  { label: '全部', tone: 'all', hint: '所有来源' },
-  { label: 'B站', tone: 'bili', hint: 'bilibili.com' },
-  { label: '抖音', tone: 'douyin', hint: 'douyin.com' },
-  { label: '小红书', tone: 'rednote', hint: 'xiaohongshu.com' },
-]
-
-function platformFromInput(input: string): Exclude<Platform, '全部'> {
-  const normalized = input.toLowerCase()
-  if (normalized.includes('douyin') || normalized.includes('iesdouyin')) return '抖音'
-  if (normalized.includes('xiaohongshu') || normalized.includes('xhslink')) return '小红书'
-  return 'B站'
-}
-
 function uniqueTaskList(items: TaskSnapshot[]): TaskSnapshot[] {
   const seen = new Set<string>()
   return items.filter((task) => {
@@ -105,9 +103,14 @@ function uniqueTaskList(items: TaskSnapshot[]): TaskSnapshot[] {
 
 function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode)
-  const [activePlatform, setActivePlatform] = useState<Platform>('全部')
+  const [heroTitleLength, setHeroTitleLength] = useState(0)
+  const [activePlatform, setActivePlatform] = useState<Platform>(defaultPlatform)
+  const [historyPlatform, setHistoryPlatform] = useState<HistoryPlatformFilter>('all')
+  const [historyFilterOpen, setHistoryFilterOpen] = useState(false)
+  const historyFilterRef = useRef<HTMLDivElement>(null)
   const [activeView, setActiveView] = useState<WorkspaceView>('new')
   const [input, setInput] = useState('')
+  const inputElementRef = useRef<HTMLInputElement>(null)
   const [parsed, setParsed] = useState<ParseResult | null>(null)
   const [genericParsed, setGenericParsed] = useState<MediaParseResult | null>(null)
   const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null)
@@ -124,15 +127,25 @@ function App() {
   const [showTaskSearch, setShowTaskSearch] = useState(false)
   const [tasks, setTasks] = useState<TaskSnapshot[]>([])
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
-  const [activeAccountPlatform, setActiveAccountPlatform] = useState<AccountPlatform>('bilibili')
+  const [activeAccountPlatform, setActiveAccountPlatform] = useState<SettingsAccountPlatform>('bilibili')
   const [accountCookie, setAccountCookie] = useState('')
   const [isSavingAccount, setIsSavingAccount] = useState(false)
-  const [douyinCookie, setDouyinCookie] = useState('')
-  const [douyinCookieConfigured, setDouyinCookieConfigured] = useState(false)
-  const [isSavingDouyinCookie, setIsSavingDouyinCookie] = useState(false)
-  const [xiaohongshuCookie, setXiaohongshuCookie] = useState('')
-  const [xiaohongshuCookieConfigured, setXiaohongshuCookieConfigured] = useState(false)
-  const [isSavingXiaohongshuCookie, setIsSavingXiaohongshuCookie] = useState(false)
+  const cookieAccountPlatforms: CookieAccountPlatform[] = ['douyin', 'xiaohongshu']
+  const [cookieAccounts, setCookieAccounts] = useState<Record<CookieAccountPlatform, CookieAccountState>>({
+    douyin: { cookie: '', configured: false, saving: false },
+    xiaohongshu: { cookie: '', configured: false, saving: false },
+  })
+
+  useEffect(() => {
+    if (!historyFilterOpen) return
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && historyFilterRef.current?.contains(target)) return
+      setHistoryFilterOpen(false)
+    }
+    document.addEventListener('pointerdown', handleOutsidePointerDown)
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown)
+  }, [historyFilterOpen])
 
   useLayoutEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -156,6 +169,27 @@ function App() {
     }
   }, [themeMode])
 
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setHeroTitleLength(heroTitle.length)
+      return
+    }
+
+    let current = 0
+    let timer = 0
+    const tick = () => {
+      current = current >= heroTitle.length ? 0 : current + 1
+      setHeroTitleLength(current)
+      timer = window.setTimeout(tick, current === heroTitle.length ? 1800 : current === 0 ? 420 : 140)
+    }
+    timer = window.setTimeout(tick, 420)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useLayoutEffect(() => {
+    inputElementRef.current?.scrollTo({ left: 0 })
+  }, [input])
+
   const themeIcon = themeMode === 'system' ? <Monitor /> : themeMode === 'light' ? <Sun /> : <Moon />
   const nextThemeMode = themeModes[(themeModes.indexOf(themeMode) + 1) % themeModes.length] ?? 'system'
   const themeTooltip = themeLabels[themeMode]
@@ -168,13 +202,16 @@ function App() {
   }
 
   useEffect(() => {
-    void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts(), getDouyinCookieStatus(), getXiaohongshuCookieStatus()])
+    void Promise.all([getHealth(), getConfig(), getExtractorStatus(), getAccounts(), getCookieStatus('douyin'), getCookieStatus('xiaohongshu')])
       .then(([healthData, configData, extractorData, accountData, douyinCookieData, xhsCookieData]) => {
         setHealth(healthData)
         setExtractor(extractorData)
         setAccounts(accountData.accounts)
-        setDouyinCookieConfigured(douyinCookieData.configured)
-        setXiaohongshuCookieConfigured(xhsCookieData.configured)
+        setCookieAccounts((current) => ({
+          ...current,
+          douyin: { ...current.douyin, configured: douyinCookieData.configured },
+          xiaohongshu: { ...current.xiaohongshu, configured: xhsCookieData.configured },
+        }))
         setConfig(configData)
         setDraft({
           savePath: configData.savePath,
@@ -239,13 +276,16 @@ function App() {
     }
   }, [])
 
-  const detectedPlatform = useMemo(() => (input.trim() === '' ? null : platformFromInput(input)), [input])
+  const detectedPlatform = useMemo(() => (input.trim() === '' ? null : detectPlatform(input)), [input])
   const availableQualities = parsed?.qualities.filter((item) => item.available) ?? []
   const chosenQuality = availableQualities.find((item) => item.qn === selectedQuality) ?? availableQualities[0]
-  const activeTasks = tasks.filter((task) => !isTerminalTask(task))
-  const historyTasks = tasks.filter(isTerminalTask)
+  const visibleTasks = tasks.filter((task) => task.platform === activePlatform)
+  const activeTasks = visibleTasks.filter((task) => !isTerminalTask(task))
+  const historyTasks = (historyPlatform === 'all' ? tasks : tasks.filter((task) => task.platform === historyPlatform)).filter(isTerminalTask)
   const queueTasks = activeTasks
-  const recentTasks = tasks.slice(0, 3)
+  const recentTasks = visibleTasks.slice(0, 3)
+  const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
+  const canEnqueue = parsed !== null || selectedGenericStream?.available === true
   const viewTitle = activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
 
   useEffect(() => {
@@ -261,7 +301,10 @@ function App() {
     setIsParsing(true)
     setNotice(null)
     try {
-      if (detectedPlatform === 'B站' || detectedPlatform === null) {
+      if (detectedPlatform === 'unknown' || detectedPlatform === null) {
+        throw new Error('无法识别这个媒体链接，请检查链接是否完整。')
+      }
+      if (detectedPlatform === 'bilibili') {
         const result = await parseMedia(value)
         setParsed(result)
         setGenericParsed(null)
@@ -272,8 +315,9 @@ function App() {
         const result = await parseUniversalMedia(value)
         setGenericParsed(result)
         setParsed(null)
-        setSelectedStreamId((result.streams.find((stream) => stream.kind === 'video' && (stream.combined || mode === 'video')) ?? result.streams.find((stream) => stream.kind === 'video') ?? result.streams[0])?.id ?? null)
-        setNotice({ kind: 'success', text: `${detectedPlatform}解析完成，已展示 extractor 返回的资源。` })
+        const availableStreams = result.streams.filter((stream) => stream.available)
+        setSelectedStreamId((availableStreams.find((stream) => stream.kind === 'video' && (stream.combined || mode === 'video')) ?? availableStreams.find((stream) => stream.kind === 'video') ?? availableStreams[0])?.id ?? null)
+        setNotice({ kind: 'success', text: `${platformLabel[detectedPlatform]}解析完成，已展示可用资源。` })
       }
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '解析失败，请检查链接或稍后重试。' })
@@ -301,14 +345,13 @@ function App() {
   async function enqueue() {
     if (parsed === null && (genericParsed === null || selectedStreamId === null)) return
     try {
-      const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
       const result = parsed !== null
         ? await createTask({
             platform: 'bilibili', input: parsed.input, bvid: parsed.bvid, cid: parsed.cid,
             qn: chosenQuality?.qn, qualityLabel: chosenQuality?.label, mode, audioContainer, title: parsed.title,
           })
         : await createTask({
-            platform: genericParsed?.platform ?? 'unknown', input: genericParsed?.input,
+            platform: genericParsed?.platform === 'unknown' ? undefined : genericParsed?.platform, input: genericParsed?.input,
             streamId: selectedStreamId ?? undefined,
             qualityLabel: selectedGenericStream === undefined
               ? undefined
@@ -390,53 +433,25 @@ function App() {
     }
   }
 
-  async function saveDouyinCookieValue() {
-    setIsSavingDouyinCookie(true)
+  async function saveCookieAccount(platform: CookieAccountPlatform) {
+    setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: true } }))
     try {
-      const result = await saveDouyinCookie(douyinCookie)
-      setDouyinCookieConfigured(result.configured)
-      setDouyinCookie('')
-      setNotice({ kind: 'success', text: '抖音 Cookie 已加密保存。' })
+      const result = await saveCookie(platform, cookieAccounts[platform].cookie)
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '', configured: result.configured, saving: false } }))
+      setNotice({ kind: 'success', text: `${platformLabel[platform]} Cookie 已加密保存。` })
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '抖音 Cookie 保存失败。' })
-    } finally {
-      setIsSavingDouyinCookie(false)
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: false } }))
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : `${platformLabel[platform]} Cookie 保存失败。` })
     }
   }
 
-  async function clearDouyinCookieValue() {
+  async function clearCookieAccount(platform: CookieAccountPlatform) {
     try {
-      const result = await clearDouyinCookie()
-      setDouyinCookieConfigured(result.configured)
-      setDouyinCookie('')
-      setNotice({ kind: 'success', text: '抖音 Cookie 已清除。' })
+      const result = await clearCookie(platform)
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '', configured: result.configured } }))
+      setNotice({ kind: 'success', text: `${platformLabel[platform]} Cookie 已清除。` })
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '抖音 Cookie 清除失败。' })
-    }
-  }
-
-  async function saveXiaohongshuCookieValue() {
-    setIsSavingXiaohongshuCookie(true)
-    try {
-      const result = await saveXiaohongshuCookie(xiaohongshuCookie)
-      setXiaohongshuCookieConfigured(result.configured)
-      setXiaohongshuCookie('')
-      setNotice({ kind: 'success', text: '小红书 Cookie 已加密保存。' })
-    } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '小红书 Cookie 保存失败。' })
-    } finally {
-      setIsSavingXiaohongshuCookie(false)
-    }
-  }
-
-  async function clearXiaohongshuCookieValue() {
-    try {
-      const result = await clearXiaohongshuCookie()
-      setXiaohongshuCookieConfigured(result.configured)
-      setXiaohongshuCookie('')
-      setNotice({ kind: 'success', text: '小红书 Cookie 已清除。' })
-    } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '小红书 Cookie 清除失败。' })
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : `${platformLabel[platform]} Cookie 清除失败。` })
     }
   }
 
@@ -482,17 +497,17 @@ function App() {
         <div className="sidebar-label">工作区</div>
         <nav className="side-nav" aria-label="主导航">
           <button className={`nav-item ${activeView === 'new' ? 'active' : ''}`} type="button" onClick={() => setActiveView('new')}><Plus /><span>新建任务</span></button>
-          <button className={`nav-item ${activeView === 'queue' ? 'active' : ''}`} type="button" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span><em className="nav-count" aria-label={`${queueTasks.length} 个排队任务`}>{queueTasks.length}</em></button>
+          <button className={`nav-item ${activeView === 'queue' ? 'active' : ''}`} type="button" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span></button>
           <button className={`nav-item ${activeView === 'history' ? 'active' : ''}`} type="button" onClick={() => setActiveView('history')}><Clock3 /><span>历史记录</span></button>
         </nav>
 
         <div className="sidebar-label sources-label">平台来源</div>
         <nav className="source-nav" aria-label="平台筛选">
-          {platformOptions.slice(1).map((platform) => (
-            <button key={platform.label} type="button" className={`source-item ${platform.tone} ${activePlatform === platform.label ? 'selected' : ''}`} onClick={() => setActivePlatform(platform.label)}>
-              <span className="source-mark"><PlatformLogo platform={platform.tone === 'bili' ? 'bilibili' : platform.tone === 'douyin' ? 'douyin' : 'xiaohongshu'} /></span>
+          {sourcePlatforms.map((platform) => (
+            <button key={platform.platform} type="button" className={`source-item ${platform.platform} ${activePlatform === platform.platform ? 'selected' : ''}`} onClick={() => setActivePlatform(platform.platform)}>
+              <span className="source-mark"><PlatformLogo platform={platform.platform} /></span>
               <span>{platform.label}</span>
-              <span className={`source-state ${platform.label === 'B站' || extractor?.available ? 'ready' : ''}`} />
+              <span className={`source-state ${!platform.requiresExtractor || extractor?.available ? 'ready' : ''}`} />
             </button>
           ))}
           <div className="source-note">更多来源持续接入</div>
@@ -534,25 +549,29 @@ function App() {
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
             <div className="hero-copy">
-              <h1>把喜欢的内容，<span>带回本地。</span></h1>
+              <h1 aria-label={heroTitle}><span className="hero-title-primary">{heroTitle.slice(0, Math.min(heroTitleLength, heroTitlePrimary.length))}</span><span className="hero-title-accent">{heroTitle.slice(heroTitlePrimary.length, heroTitleLength)}</span><span className="hero-caret" aria-hidden="true">|</span></h1>
+              <p className="hero-subtitle">多平台媒体资源整理</p>
             </div>
             <div className="hero-platforms" aria-label="支持的平台">
-              <span className="hero-platform bilibili"><PlatformLogo platform="bilibili" /><span>B站</span></span>
-              <span className="hero-platform douyin"><PlatformLogo platform="douyin" /><span>抖音</span></span>
-              <span className="hero-platform xiaohongshu"><PlatformLogo platform="xiaohongshu" /><span>小红书</span></span>
+              {sourcePlatforms.map((platform) => (
+                <span className={`hero-platform ${platform.platform}`} key={platform.platform}><PlatformLogo platform={platform.platform} /><span>{platform.label}</span></span>
+              ))}
             </div>
           </div>
           <div className="input-row">
             <div className="url-input-wrap">
-              <Link2 className="input-link-icon" />
-              <input
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter') void handleParse() }}
-                placeholder="粘贴媒体链接或分享链接"
-                aria-label="媒体链接"
-              />
-              {detectedPlatform !== null && <span className={`detected-badge ${detectedPlatform === 'B站' ? 'bili' : detectedPlatform === '抖音' ? 'douyin' : 'rednote'}`}>{detectedPlatform}</span>}
+              <span className="url-input-leading" aria-hidden="true"><Link2 className="input-link-icon" /></span>
+              <div className={`url-input-field ${input.trim() !== '' ? 'has-value' : ''}`}>
+                <input
+                  ref={inputElementRef}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') void handleParse() }}
+                  placeholder="粘贴媒体链接或分享链接"
+                  aria-label="媒体链接"
+                />
+              </div>
+              {detectedPlatform !== null && detectedPlatform !== 'unknown' && <span className={`detected-badge ${detectedPlatform}`} title={platformLabel[detectedPlatform]} aria-label={platformLabel[detectedPlatform]}><PlatformLogo platform={detectedPlatform} /></span>}
             </div>
             <button className="primary-button" type="button" onClick={() => void handleParse()} disabled={isParsing}>
               {isParsing ? <LoaderCircle className="spin" /> : <Plus />}
@@ -560,7 +579,6 @@ function App() {
               {!isParsing && <ArrowRight className="button-trailing" />}
             </button>
           </div>
-          <div className="hero-footer"><span><Link2 /> 一条链接，开始解析</span><span className="hero-footer-accent">本地处理 · 文件留在你的设备</span></div>
           {notice !== null && <div className={`notice ${notice.kind}`} role="status"><span>{notice.kind === 'error' ? <X /> : notice.kind === 'success' ? <Check /> : <Activity />}</span>{notice.text}</div>}
         </section>}
 
@@ -586,13 +604,12 @@ function App() {
                   </div>
                 ))}
               </div>
-              <button className="queue-button" type="button" onClick={() => void enqueue()} disabled={parsed === null && (genericParsed === null || selectedStreamId === null)}><ArrowDownToLine /><span>加入下载队列</span></button>
+              <button className="queue-button" type="button" onClick={() => void enqueue()} disabled={!canEnqueue}><ArrowDownToLine /><span>加入下载队列</span></button>
             </section>
 
             <section className="panel tasks-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><span className="heading-icon"><ListChecks /></span><div><h2>最近任务</h2></div></div>
-                <span className="task-count" aria-label={`${tasks.length} 项任务`}><strong>{tasks.length}</strong><small>项</small></span>
+                <div className="heading-title"><span className="heading-icon"><ListChecks /></span><div><h2><span className="heading-main">最近任务</span><small className="heading-count">（{visibleTasks.length}项）</small></h2></div></div>
               </div>
               {recentTasks.length === 0 ? <div className="tasks-empty"><Clock3 /><span>新任务会显示在这里</span></div> : <div className="task-list">{recentTasks.map((task) => <TaskRow key={task.id} task={task} variant="compact" onCancel={(id) => void stopTask(id)} onRemove={(id) => void removeHistoryTask(id)} />)}</div>}
             </section>
@@ -601,10 +618,20 @@ function App() {
 
         {activeView !== 'new' && <section className="panel task-view-panel">
           <div className="panel-heading">
-            <div className="heading-title"><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span><div><h2>{viewTitle}</h2></div></div>
-            <span className="task-count" aria-label={`${(activeView === 'queue' ? queueTasks : historyTasks).length} 项任务`}><strong>{(activeView === 'queue' ? queueTasks : historyTasks).length}</strong><small>项</small></span>
+            <div className="heading-title"><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span><div><h2><span className="heading-main">{activeView === 'history' ? '历史记录' : '下载队列'}</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
+            {activeView === 'history' && <div ref={historyFilterRef} className="platform-filter" data-open={historyFilterOpen ? 'true' : 'false'}>
+              <button className="platform-filter-trigger" type="button" aria-haspopup="listbox" aria-expanded={historyFilterOpen} onClick={() => setHistoryFilterOpen((open) => !open)}>
+                <span className={`platform-filter-icon ${historyPlatform === 'all' || historyPlatform === 'unknown' ? 'douyin' : historyPlatform}`} aria-hidden="true">{historyPlatform === 'all' || historyPlatform === 'unknown' ? <Globe2 className="platform-filter-globe" /> : <PlatformLogo platform={historyPlatform} />}</span>
+                <span>{historyPlatform === 'all' || historyPlatform === 'unknown' ? '全部来源' : platformLabel[historyPlatform]}</span>
+                <ChevronDown className="platform-filter-chevron" />
+              </button>
+              {historyFilterOpen && <div className="platform-filter-menu" role="listbox" aria-label="历史记录平台筛选">
+                <button className={historyPlatform === 'all' ? 'selected' : ''} type="button" role="option" aria-selected={historyPlatform === 'all'} onClick={() => { setHistoryPlatform('all'); setHistoryFilterOpen(false) }}><span className="platform-filter-icon douyin" aria-hidden="true"><Globe2 className="platform-filter-globe" /></span><span>全部来源</span>{historyPlatform === 'all' && <Check />}</button>
+                {sourcePlatforms.map((platform) => <button className={historyPlatform === platform.platform ? 'selected' : ''} type="button" role="option" aria-selected={historyPlatform === platform.platform} key={platform.platform} onClick={() => { setHistoryPlatform(platform.platform); setHistoryFilterOpen(false) }}><span className={`platform-filter-icon ${platform.platform}`} aria-hidden="true"><PlatformLogo platform={platform.platform} /></span><span>{platform.label}</span>{historyPlatform === platform.platform && <Check />}</button>)}
+              </div>}
+            </div>}
           </div>
-          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong><span>{activeView === 'queue' ? '从新建任务解析内容后加入下载队列。' : '完成、失败或停止的下载会显示在这里。'}</span></div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} onCancel={(id) => void stopTask(id)} onRetry={(id) => void retryDownload(id)} onRemove={(id) => void removeHistoryTask(id)} />)}</div>}
+          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong>{activeView === 'queue' && <span>从新建任务解析内容后加入下载队列。</span>}</div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} onCancel={(id) => void stopTask(id)} onRetry={(id) => void retryDownload(id)} onRemove={(id) => void removeHistoryTask(id)} />)}</div>}
         </section>}
       </main>
 
@@ -612,7 +639,11 @@ function App() {
         open={showTaskSearch}
         tasks={tasks}
         onClose={() => setShowTaskSearch(false)}
-        onSelect={(task) => { setActiveView(isTerminalTask(task) ? 'history' : 'queue'); setShowTaskSearch(false) }}
+        onSelect={(task) => {
+          if (isTerminalTask(task)) setHistoryPlatform(task.platform === 'unknown' ? 'all' : task.platform)
+          setActiveView(isTerminalTask(task) ? 'history' : 'queue')
+          setShowTaskSearch(false)
+        }}
       />
 
       <SettingsModal
@@ -631,18 +662,10 @@ function App() {
         onActivateAccount={(id) => void activateBiliAccount(id)}
         onVerifyAccount={(id) => void verifyBiliAccount(id)}
         onDeleteAccount={(id) => void deleteBiliAccount(id)}
-        douyinCookieConfigured={douyinCookieConfigured}
-        douyinCookie={douyinCookie}
-        isSavingDouyinCookie={isSavingDouyinCookie}
-        onDouyinCookieChange={setDouyinCookie}
-        onSaveDouyinCookie={() => void saveDouyinCookieValue()}
-        onClearDouyinCookie={() => void clearDouyinCookieValue()}
-        xiaohongshuCookieConfigured={xiaohongshuCookieConfigured}
-        xiaohongshuCookie={xiaohongshuCookie}
-        isSavingXiaohongshuCookie={isSavingXiaohongshuCookie}
-        onXiaohongshuCookieChange={setXiaohongshuCookie}
-        onSaveXiaohongshuCookie={() => void saveXiaohongshuCookieValue()}
-        onClearXiaohongshuCookie={() => void clearXiaohongshuCookieValue()}
+        cookieAccounts={cookieAccounts}
+        onCookieChange={(platform, value) => setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: value } }))}
+        onSaveCookie={(platform) => void saveCookieAccount(platform)}
+        onClearCookie={(platform) => void clearCookieAccount(platform)}
       />
     </div>
   )

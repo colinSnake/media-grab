@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import type { MediaParseResult, MediaStream, Platform } from '@mediagrab/shared'
+import { platformDefinition, platformLabel, type ExtractorPlatform, type MediaParseResult, type MediaStream } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
@@ -54,7 +54,21 @@ function isPresent(value: unknown): value is string {
 }
 
 function normalizeCoverUrl(url: string): string {
-  return url.replace(/^http:\/\//i, 'https://')
+  if (!isPresent(url)) return ''
+  try {
+    const normalized = new URL(url)
+    normalized.protocol = 'https:'
+    return normalized.toString()
+  } catch {
+    return ''
+  }
+}
+
+function safeFormatHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (headers === undefined) return undefined
+  const allowed = new Set(['accept', 'accept-language', 'origin', 'referer', 'user-agent'])
+  const safeEntries = Object.entries(headers).filter(([name, value]) => allowed.has(name.toLowerCase()) && isPresent(value))
+  return safeEntries.length === 0 ? undefined : Object.fromEntries(safeEntries)
 }
 
 function projectYtDlpPath(root: string): string {
@@ -81,28 +95,31 @@ function streamFromFormat(format: YtDlpFormat, index: number): MediaStream | und
   const audio = isPresent(format.acodec) && format.acodec !== 'none'
   if (!video && !audio) return undefined
   const kind = video ? 'video' : 'audio'
+  const dimensions = [format.width, format.height].filter((value): value is number => value !== undefined && value > 0)
+  const resolution = dimensions.length === 0 ? undefined : Math.min(...dimensions)
+  const videoLabel = resolution !== undefined && resolution > 0 ? `${resolution}P` : '视频'
+  const audioLabel = format.tbr !== undefined && format.tbr > 0 ? `${Math.round(format.tbr)}K` : '音频'
   return {
     id: String(format.format_id ?? `${kind}-${index}`),
     kind,
     combined: video && audio,
-    label: video
-      ? `${Math.min(format.width ?? format.height ?? 0, format.height ?? format.width ?? 0)}P${format.fps !== undefined ? ` ${format.fps}fps` : ''}`
-      : `${Math.round(format.tbr ?? 0)}K`,
+    label: video ? `${videoLabel}${format.fps !== undefined ? ` ${format.fps}fps` : ''}` : audioLabel,
     url: format.url,
     backupUrls: [],
     width: format.width,
     height: format.height,
     codecs: [format.vcodec, format.acodec].filter(isPresent).join(', '),
     mimeType: format.mime,
+    httpHeaders: safeFormatHeaders(format.http_headers),
     bitrate: format.tbr === undefined ? undefined : Math.round(format.tbr * 1000),
-    sizeBytes: format.filesize ?? format.filesize_approx,
+    sizeBytes: [format.filesize, format.filesize_approx].find((size) => size !== undefined && size >= 0),
     available: true,
     reason: '',
   }
 }
 
 export interface YtDlpAdapterOptions {
-  platform: Exclude<Platform, 'bilibili' | 'unknown'>
+  platform: ExtractorPlatform
   executable?: string
   cookieProvider?: () => string | undefined
   logger?: Logger
@@ -110,7 +127,7 @@ export interface YtDlpAdapterOptions {
 }
 
 export class YtDlpAdapter {
-  readonly platform: Exclude<Platform, 'bilibili' | 'unknown'>
+  readonly platform: ExtractorPlatform
   #executable: string
   #allowPythonFallback: boolean
   #cookieProvider: () => string | undefined
@@ -179,10 +196,13 @@ export class YtDlpAdapter {
         throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
       }
       if (/fresh cookies|cookies.*needed|cookies.*required/i.test(message)) {
-        const label = this.platform === 'douyin' ? '抖音' : '小红书'
+        const label = platformLabel[this.platform]
+        if (platformDefinition(this.platform)?.cookieSupport === 'unsupported') {
+          throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}要求登录或验证身份；当前版本尚未支持导入该平台的 Cookie。`, 'permission', 403)
+        }
         throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}需要新鲜的 Cookie。请在平台设置中粘贴有效 Cookie后重试。`, 'permission', 403)
       }
-      throw new ApiError('EXTRACTOR_FAILED', `${this.platform === 'douyin' ? '抖音' : '小红书'}解析失败：${message}`, 'network', 502)
+      throw new ApiError('EXTRACTOR_FAILED', `${platformLabel[this.platform]}解析失败：${message}`, 'network', 502)
     }
 
     let info: YtDlpInfo
@@ -198,6 +218,11 @@ export class YtDlpAdapter {
     const streams = (info.formats ?? [])
       .map(streamFromFormat)
       .filter((item): item is MediaStream => item !== undefined)
+      .sort((left, right) => {
+        if (left.kind !== right.kind) return left.kind === 'video' ? -1 : 1
+        if (left.combined !== right.combined) return left.combined ? -1 : 1
+        return (right.height ?? 0) - (left.height ?? 0) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
+      })
     const video = streams.some((stream) => stream.kind === 'video')
     const audio = streams.some((stream) => stream.kind === 'audio' || stream.combined)
     return {

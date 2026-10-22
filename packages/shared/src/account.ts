@@ -30,15 +30,21 @@ export const biliAccountImportSchema = z.object({
 })
 export type BiliAccountImport = z.infer<typeof biliAccountImportSchema>
 
-export const douyinCookieSchema = z.object({
+export const cookieAccountPlatformSchema = z.enum(['douyin', 'xiaohongshu'])
+export type CookieAccountPlatform = z.infer<typeof cookieAccountPlatformSchema>
+
+export const cookieAccountParamsSchema = z.object({ platform: cookieAccountPlatformSchema })
+
+export const platformCookieSchema = z.object({
   cookie: z.string().trim().min(1).max(65_536),
 })
-export type DouyinCookieInput = z.infer<typeof douyinCookieSchema>
+export type PlatformCookieInput = z.infer<typeof platformCookieSchema>
 
-export const douyinCookieStatusSchema = z.object({ configured: z.boolean() })
-export type DouyinCookieStatus = z.infer<typeof douyinCookieStatusSchema>
+export const cookieStatusSchema = z.object({ configured: z.boolean() })
+export type CookieStatus = z.infer<typeof cookieStatusSchema>
 
-export const xiaohongshuCookieStatusSchema = z.object({ configured: z.boolean() })
-export type XiaohongshuCookieStatus = z.infer<typeof xiaohongshuCookieStatusSchema>
+export const douyinCookieSchema = platformCookieSchema
+export const douyinCookieStatusSchema = cookieStatusSchema
+export const xiaohongshuCookieStatusSchema = cookieStatusSchema
 
 export const accountIdParamsSchema = z.object({ id: z.string().min(1) })

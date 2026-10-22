@@ -4,8 +4,8 @@
 | --- | --- |
 | 文档版本 | v1.0 |
 | 架构目标 | 跨平台桌面应用 + 可替换平台适配器 + 可恢复下载任务 |
-| 当前过渡实现 | React/Vite + Node/Fastify + SQLite |
-| 目标实现 | Tauri 2 + React/Vite + Rust core + SQLite |
+| 当前实现 | Tauri 2 + React/Vite + Node/Fastify + SQLite |
+| 桌面目标 | Tauri 管理桌面窗口与原生能力；Node/Fastify 继续提供本地业务 API |
 
 ## 1. 选型结论
 
@@ -13,13 +13,9 @@
 
 Tauri 的职责只包括窗口生命周期、菜单、托盘、通知、文件选择、应用目录、系统权限和安装包。它不承载平台解析规则，也不让 React 直接操作任意文件路径。
 
-### Rust core 作为长期运行时
+### Node/Fastify 作为本地业务核心
 
-下载器需要高并发 I/O、取消、断点、子进程、文件锁和跨平台发布。Rust core 将这些能力集中起来，并向 UI 暴露稳定的命令和事件。平台适配器是 trait/接口实现，新增平台不需要改 UI。
-
-### 当前 Node 服务作为迁移层
-
-仓库已有 B 站 WBI、设备指纹、请求限速、解析和 SQLite 测试。先把它包装成 `BilibiliAdapter`，让 UI 通过通用 media API 消费；Rust core 完成后再迁移下载编排和平台请求，避免同时重写所有已验证逻辑。
+Node/Fastify 统一负责 Web 与桌面版共用的解析、下载任务、平台适配、HTTP/WebSocket API 和 SQLite 数据访问。桌面发行版需要随应用提供 Node 运行时和服务端依赖，用户不应被要求另行安装 Node。Rust 仅用于 Tauri 桌面宿主及必要的原生系统集成；当前没有把业务核心迁移到 Rust 的计划。
 
 ### FFmpeg 作为外部媒体工具
 
@@ -33,17 +29,20 @@ Tauri 的职责只包括窗口生命周期、菜单、托盘、通知、文件�
 
 ```text
 React UI
-  -> Tauri bridge / app commands
-  -> Rust application core
+  -> local HTTP/WebSocket API
+  -> Node.js + Fastify application core
      -> platform registry: Bilibili / Douyin / Xiaohongshu / future
-     -> media normalizer
-     -> download orchestrator
-     -> ffmpeg runner
+     -> media normalizer and download orchestrator
+     -> FFmpeg / yt-dlp processes
      -> task repository / event bus
   -> SQLite + platform HTTP/CDN
+
+Tauri 2 + Rust desktop shell
+  -> owns the app window and native desktop integrations
+  -> starts and supervises the bundled local Node service in desktop builds
 ```
 
-桌面壳负责窗口、文件系统、通知、托盘和更新；UI 只消费领域模型；平台请求全部经过 adapter；下载器不认识具体平台字段。
+桌面壳负责窗口及原生系统集成；Node/Fastify 负责业务 API；UI 只消费统一领域模型；平台请求全部经过 adapter；下载器不认识具体平台字段。
 
 ## 3. 稳定的领域模型
 
@@ -67,17 +66,16 @@ apps/web/src/
 ├─ features/settings/   设置与诊断
 └─ ui/                  无业务的布局、按钮、状态和表格
 
-apps/server/src/        过渡期 Node runtime
-├─ platform/bilibili/   由当前 bili/ 迁移而来
-├─ application/         通用解析、任务与错误编排
-├─ routes/              HTTP 兼容层
+apps/server/src/        Node/Fastify 本地业务核心（Web 与桌面共用）
+├─ bili/                B 站协议与请求实现
+├─ platform/            平台 registry 与 extractor adapter
+├─ download/            通用下载任务编排
+├─ routes/              HTTP/WebSocket API
 └─ store/               SQLite 持久化
 
-apps/desktop/src-tauri/ 目标桌面 runtime
-├─ commands/             UI 命令边界
-├─ core/                 任务、解析、下载和事件
-├─ adapters/             平台实现
-└─ system/               文件、通知、托盘、更新
+apps/desktop/src-tauri/ Tauri/Rust 桌面宿主
+├─ app lifecycle         窗口和应用生命周期
+└─ native integrations  文件选择、通知、托盘等系统能力
 ```
 
 ## 5. 下载任务设计
@@ -106,19 +104,15 @@ apps/desktop/src-tauri/ 目标桌面 runtime
 
 ## 6. API / 命令契约
 
-过渡期 HTTP API 与目标 Tauri command 使用同一份 shared schema：
+Web 与桌面 UI 使用同一套本地 HTTP API 和 shared schema。Tauri command 仅用于需要原生桌面能力的操作，不复制业务 API：
 
-| 能力 | 过渡期 | 目标 |
-| --- | --- | --- |
-| 健康检查 | `GET /api/health` | `get_runtime_status` |
-| 解析链接 | `POST /api/parse` | `resolve_media` |
-| 读取流选项 | `POST /api/playurl` | `get_stream_options` |
-| 创建任务 | `POST /api/tasks` | `create_download_task` |
-| 任务快照 | `GET /api/tasks` | `list_tasks` |
-| 取消/重试 | `/api/tasks/:id/*` | `cancel_task` / `retry_task` |
-| 实时事件 | WebSocket `/api/ws` | Tauri event channel |
-| 配置 | `GET/PATCH /api/config` | `get_settings` / `update_settings` |
-| 平台能力 | `GET /api/platforms` | `get_platform_status` |
+| 能力 | 业务 API |
+| --- | --- |
+| 健康检查 | `GET /api/health` |
+| 解析链接 | `POST /api/parse`、`POST /api/media/parse` |
+| 创建/管理任务 | `/api/tasks` 及对应操作路由 |
+| 实时事件 | WebSocket `/api/ws` |
+| 配置与平台能力 | `/api/config`、`/api/platforms` |
 
 ## 7. 数据模型
 
@@ -140,17 +134,16 @@ SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下�
 
 | 决策 | 结论 | 原因 |
 | --- | --- | --- |
-| 桌面壳 | Tauri 2 | 三端、原生能力、较小运行时、Rust core 复用 |
+| 桌面壳 | Tauri 2 | 三端桌面窗口与原生系统集成 |
 | UI | React + Vite | 现有代码可延续，适合工作台型界面 |
-| 核心 | Rust workspace | 下载、文件、子进程和跨平台分发需要强边界 |
+| 业务核心 | Node.js + Fastify | Web 与桌面共用实现，复用现有平台和任务能力 |
 | 存储 | SQLite | 单机任务可靠、查询简单、无需服务端 |
-| 实时通信 | WebSocket / Tauri event | 任务状态天然是事件，UI 断线时回退快照轮询 |
-| 兼容层 | Node/Fastify 保留至 D3 | 保护当前 B 站验证成果，降低一次性重写风险 |
+| 实时通信 | WebSocket | Web 与桌面共用事件契约，断线时回退快照轮询 |
 | 抖音/小红书 extractor | yt-dlp bridge | 平台变动集中在成熟 extractor，产品核心保持稳定 |
 
-## 10. 迁移规则
+## 10. 桌面运行规则
 
-1. 先统一 UI 领域模型和 API 命名，再迁移实现；不让新功能继续调用 `bili/*` 专用类型。
-2. 每接入一个平台，必须提供 URL 识别、详情、资源选项、权限错误和最小 fixture 测试。
-3. Rust core 接管任务后，Node 只作为开发期 adapter host；桌面发行版不依赖用户安装 Node。
-4. 迁移完成后移除 Fastify 静态托管和 B 站专用产品文案，但保留平台适配器的测试与风控规则。
+1. Web 与桌面继续共用 Node/Fastify 业务核心和领域模型。
+2. 桌面发行包提供匹配目标平台的 Node 运行时及服务端生产依赖；不要求用户自行安装 Node。
+3. Tauri/Rust 负责宿主生命周期和原生系统操作，不复制解析、任务、平台 adapter 或数据库业务逻辑。
+4. 每接入一个平台，必须提供 URL 识别、详情、资源选项、权限错误和最小 fixture 测试。

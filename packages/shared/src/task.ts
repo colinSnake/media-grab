@@ -84,7 +84,7 @@ export function isTerminal(status: TaskStatus): boolean {
 }
 
 export const createTaskRequestSchema = z.object({
-  platform: platformSchema.default('bilibili'),
+  platform: platformSchema.exclude(['unknown']).optional(),
   input: z.string().min(1).optional(),
   bvid: z.string().regex(/^BV[0-9A-Za-z]{10}$/, 'bvid 格式不正确').optional(),
   cid: z.number().int().positive().optional(),

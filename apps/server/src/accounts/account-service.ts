@@ -1,17 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import { navSchema, type AccountSession, type AccountSummary } from '@mediagrab/shared'
+import { navSchema, type AccountSession, type AccountSummary, type ExtractorPlatform } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
 import type { BiliHttp } from '../bili/http.js'
 import { AccountRepository, type AccountRecord } from '../store/repositories.js'
 import { CredentialVault } from './credential-vault.js'
-import { normalizeDouyinCookie, normalizeXiaohongshuCookie } from './douyin-cookie.js'
+import { normalizePlatformCookie, type CookiePlatform } from './douyin-cookie.js'
 
 const BILI_NAV_URL = 'https://api.bilibili.com/x/web-interface/nav'
 const COOKIE_NAMES = ['SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid'] as const
-const DOUYIN_COOKIE_ID = 'platform:douyin'
-const XIAOHONGSHU_COOKIE_ID = 'platform:xiaohongshu'
+function cookieId(platform: CookiePlatform): string {
+  return `platform:${platform}`
+}
 
 function parseBiliCookie(raw: string): string {
   const values = new Map<string, string>()
@@ -82,36 +83,53 @@ export class AccountService {
       : { loggedIn: false, vip: false }
   }
 
+  cookieConfigured(platform: CookiePlatform): boolean {
+    return this.#vault.get(cookieId(platform)) !== null
+  }
+
+  saveCookie(platform: CookiePlatform, rawCookie: string): void {
+    this.#vault.set(cookieId(platform), normalizePlatformCookie(platform, rawCookie))
+  }
+
+  clearCookie(platform: CookiePlatform): void {
+    this.#vault.delete(cookieId(platform))
+  }
+
+  cookie(platform: ExtractorPlatform): string | undefined {
+    if (platform !== 'douyin' && platform !== 'xiaohongshu') return undefined
+    return this.#vault.get(cookieId(platform)) ?? undefined
+  }
+
   douyinCookieConfigured(): boolean {
-    return this.#vault.get(DOUYIN_COOKIE_ID) !== null
+    return this.cookieConfigured('douyin')
   }
 
   saveDouyinCookie(rawCookie: string): void {
-    this.#vault.set(DOUYIN_COOKIE_ID, normalizeDouyinCookie(rawCookie))
+    this.saveCookie('douyin', rawCookie)
   }
 
   clearDouyinCookie(): void {
-    this.#vault.delete(DOUYIN_COOKIE_ID)
+    this.clearCookie('douyin')
   }
 
   douyinCookie(): string | undefined {
-    return this.#vault.get(DOUYIN_COOKIE_ID) ?? undefined
+    return this.cookie('douyin')
   }
 
   xiaohongshuCookieConfigured(): boolean {
-    return this.#vault.get(XIAOHONGSHU_COOKIE_ID) !== null
+    return this.cookieConfigured('xiaohongshu')
   }
 
   saveXiaohongshuCookie(rawCookie: string): void {
-    this.#vault.set(XIAOHONGSHU_COOKIE_ID, normalizeXiaohongshuCookie(rawCookie))
+    this.saveCookie('xiaohongshu', rawCookie)
   }
 
   clearXiaohongshuCookie(): void {
-    this.#vault.delete(XIAOHONGSHU_COOKIE_ID)
+    this.clearCookie('xiaohongshu')
   }
 
   xiaohongshuCookie(): string | undefined {
-    return this.#vault.get(XIAOHONGSHU_COOKIE_ID) ?? undefined
+    return this.cookie('xiaohongshu')
   }
 
   async importBili(label: string, rawCookie: string): Promise<AccountSummary> {

@@ -34,7 +34,6 @@ function service(options: { media?: MediaParseResult } = {}): TaskService {
   const media = options.media
   return new TaskService({
     repo: repo as never,
-    bili: { playurl: async () => ({ video: [], audio: [] }) } as never,
     platforms: {} as never,
     media: { parse: async () => media } as never,
     config: { get: () => ({ ffmpegPath: '', savePath: './download', audioBitrateKbps: 128, downloadPoolSize: 3 }) } as never,
@@ -51,6 +50,28 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe('TaskService task identity', () => {
+  it('rejects a task whose declared platform conflicts with a recognized URL', async () => {
+    const taskService = service({ media: {
+      platform: 'douyin', input: 'https://www.douyin.com/video/1', id: '1', title: 'test', authorName: '', cover: '', durationSec: 1,
+      streams: [], itemCount: 1, capabilities: { video: false, audio: false, image: false, download: false },
+    } })
+
+    await expect(taskService.create({ platform: 'youtube', input: 'https://www.douyin.com/video/1', mode: 'video', title: '' })).rejects.toMatchObject({
+      code: 'INVALID_TASK',
+    })
+  })
+
+  it('infers the platform when a task request omits it', async () => {
+    const taskService = service({ media: {
+      platform: 'douyin', input: 'https://www.douyin.com/video/1', id: '1', title: 'test', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'video', kind: 'video', combined: true, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    } })
+
+    const result = await taskService.create({ input: 'https://www.douyin.com/video/1', mode: 'video', title: '' })
+    expect(result.task.platform).toBe('douyin')
+  })
+
   it('serializes concurrent duplicate creates', async () => {
     const taskService = service()
     const request = {
@@ -101,6 +122,20 @@ describe('TaskService task identity', () => {
     expect(result.task.qualityLabel).toBe('720P 30fps')
   })
 
+  it('skips unavailable generic streams when the request selects one', async () => {
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/unavailable', id: 'unavailable', title: 'test', authorName: '', cover: '', durationSec: 1,
+      streams: [
+        { id: 'restricted', kind: 'video', combined: true, label: '1080P', url: 'https://example.com/restricted', backupUrls: [], available: false, reason: '需要登录' },
+        { id: 'available', kind: 'video', combined: true, label: '720P', url: 'https://example.com/available', backupUrls: [], available: true, reason: '' },
+      ],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    }
+    const result = await service({ media }).create({ platform: 'douyin', input: media.input, streamId: 'restricted', mode: 'video', title: media.title })
+    expect(result.task.streamId).toBe('available')
+    expect(result.task.qualityLabel).toBe('720P')
+  })
+
   it('limits running downloads to downloadPoolSize and drains queued tasks', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-pool-'))
     const repo = new FakeTaskRepository()
@@ -120,7 +155,6 @@ describe('TaskService task identity', () => {
     })
     const taskService = new TaskService({
       repo: repo as never,
-      bili: {} as never,
       platforms: {} as never,
       media: { parse: async (input: string) => media(input) } as never,
       config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
@@ -162,7 +196,6 @@ describe('TaskService task identity', () => {
     })
     const taskService = new TaskService({
       repo: repo as never,
-      bili: {} as never,
       platforms: {} as never,
       media: { parse: async (input: string) => media(input) } as never,
       config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: poolSize }) } as never,
@@ -210,7 +243,6 @@ describe('TaskService task identity', () => {
     }
     const taskService = new TaskService({
       repo: repo as never,
-      bili: {} as never,
       platforms: {} as never,
       media: { parse: async () => media } as never,
       config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
@@ -253,7 +285,6 @@ describe('TaskService task identity', () => {
     const fetchStarted = new Promise<void>((resolve) => { notifyFetchStarted = resolve })
     const taskService = new TaskService({
       repo: repo as never,
-      bili: {} as never,
       platforms: {} as never,
       media: { parse: async () => media } as never,
       config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
@@ -277,6 +308,38 @@ describe('TaskService task identity', () => {
     }
   })
 
+  it('falls back to an alternate stream URL when the primary URL fails', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-fallback-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/fallback', id: 'fallback', title: 'fallback-test', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'combined', kind: 'video', combined: true, label: '720P', url: 'https://example.com/primary', backupUrls: ['https://example.com/backup'], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    }
+    const attempted: string[] = []
+    const taskService = new TaskService({
+      repo: repo as never,
+      platforms: {} as never,
+      media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: (async (input) => {
+        attempted.push(String(input))
+        if (String(input).endsWith('/primary')) return new Response(null, { status: 503 })
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-length': '3' } })
+      }) as typeof fetch,
+    })
+
+    try {
+      const result = await taskService.create({ platform: 'douyin', input: media.input, mode: 'video', title: media.title })
+      await waitFor(() => taskService.get(result.task.id)?.status === 'success' || taskService.get(result.task.id)?.status === 'fail')
+      expect(taskService.get(result.task.id)?.status).toBe('success')
+      expect(attempted).toEqual(['https://example.com/primary', 'https://example.com/backup'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('marks persisted waiting tasks as retryable after a restart', () => {
     const repo = new FakeTaskRepository()
     repo.seed({
@@ -286,7 +349,6 @@ describe('TaskService task identity', () => {
     })
     new TaskService({
       repo: repo as never,
-      bili: {} as never,
       platforms: {} as never,
       media: {} as never,
       config: { get: () => ({ ffmpegPath: '', savePath: './download', audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,

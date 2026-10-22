@@ -1,27 +1,62 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="surface" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#A77BFF"/>
-      <stop offset="0.52" stop-color="#7469FF"/>
-      <stop offset="1" stop-color="#4A9BF4"/>
+    <linearGradient id="surface" x1="74" y1="44" x2="438" y2="468" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6A4FE5"/>
+      <stop offset="0.5" stop-color="#4D6BE8"/>
+      <stop offset="1" stop-color="#2D9BEA"/>
     </linearGradient>
-    <linearGradient id="card" x1="150" y1="116" x2="367" y2="391" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFFFF" stop-opacity="0.98"/>
-      <stop offset="1" stop-color="#D9D7FF" stop-opacity="0.78"/>
+    <radialGradient id="surfaceGlow" cx="0" cy="0" r="1" gradientTransform="translate(124 88) rotate(47) scale(464)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B0A5FF" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#7BD8FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="backCard" x1="114" y1="93" x2="418" y2="213" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDD7FF"/>
+      <stop offset="1" stop-color="#B3C7FF"/>
     </linearGradient>
-    <filter id="shadow" x="80" y="74" width="352" height="382" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#21175F" flood-opacity="0.32"/>
+    <linearGradient id="middleCard" x1="114" y1="196" x2="418" y2="316" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEEFFF"/>
+      <stop offset="1" stop-color="#CADCFF"/>
+    </linearGradient>
+    <linearGradient id="frontCard" x1="114" y1="299" x2="418" y2="419" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E1EDFF"/>
+    </linearGradient>
+    <filter id="shadow" x="70" y="30" width="390" height="452" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#263080" flood-opacity="0.2"/>
     </filter>
+    <path id="card-shape" d="M52 0H252C274.286 0 286.667 0 295.333 8.667C304 17.333 304 29.714 304 52V68C304 90.286 304 102.667 295.333 111.333C286.667 120 274.286 120 252 120H52C29.714 120 17.333 120 8.667 111.333C0 102.667 0 90.286 0 68V52C0 29.714 0 17.333 8.667 8.667C17.333 0 29.714 0 52 0Z"/>
   </defs>
+
   <rect x="20" y="20" width="472" height="472" rx="126" fill="url(#surface)"/>
-  <path d="M72 318C120 386 194 425 286 425C368 425 427 394 466 343V480H32V403C46 377 59 349 72 318Z" fill="#4334B6" fill-opacity="0.22"/>
+  <rect x="20" y="20" width="472" height="472" rx="126" fill="url(#surfaceGlow)"/>
+
   <g filter="url(#shadow)">
-    <rect x="132" y="105" width="248" height="288" rx="58" transform="rotate(8 132 105)" fill="url(#card)"/>
+    <g transform="rotate(-24 266 153)">
+      <use href="#card-shape" x="114" y="93" fill="url(#backCard)"/>
+      <path d="M252 131V175L290 153L252 131Z" fill="#514CC2" stroke="#514CC2" stroke-width="5" stroke-linejoin="round"/>
+    </g>
+
+    <g>
+      <use href="#card-shape" x="114" y="196" fill="url(#middleCard)"/>
+      <path d="M260 236V271M260 240L288 234V263" stroke="#514CC2" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <ellipse cx="250" cy="274" rx="12" ry="9" fill="#514CC2"/>
+      <ellipse cx="278" cy="266" rx="12" ry="9" fill="#514CC2"/>
+    </g>
+
+    <g transform="rotate(24 266 359)">
+      <use href="#card-shape" x="114" y="299" fill="url(#frontCard)"/>
+      <rect x="232" y="334" width="68" height="50" rx="10" stroke="#514CC2" stroke-width="7"/>
+      <circle cx="282" cy="348" r="6" fill="#514CC2"/>
+      <path d="M237 375L252 360L265 371L277 360L295 375" stroke="#514CC2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
   </g>
-  <path d="M205 168L325 185C345 188 359 206 356 226L347 286C344 306 326 320 306 317L186 300C166 297 152 279 155 259L164 199C167 179 185 165 205 168Z" fill="#6B62E8" fill-opacity="0.16"/>
-  <path d="M214 175L326 191C343 193 355 209 353 226L347 266" stroke="white" stroke-opacity="0.58" stroke-width="10" stroke-linecap="round"/>
-  <path d="M204 218L204 270L249 244L204 218Z" fill="#554BCB"/>
-  <path d="M275 239V260M294 226V273M313 234V266M332 243V257" stroke="#554BCB" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="377" cy="139" r="14" fill="#D7D0FF" fill-opacity="0.9"/>
-  <circle cx="127" cy="365" r="9" fill="#8BCAFF" fill-opacity="0.9"/>
+
+  <path d="M162 199C110 186 110 326 162 313" stroke="#3E40A1" stroke-width="12" stroke-linecap="round"/>
+  <path d="M162 199C110 186 110 326 162 313" stroke="#CDEAFF" stroke-width="7" stroke-linecap="round"/>
+  <g fill="#5254B7" stroke="#F4F5FF" stroke-width="4">
+    <circle cx="162" cy="199" r="10"/>
+    <circle cx="152" cy="256" r="10"/>
+    <circle cx="162" cy="313" r="10"/>
+  </g>
+  <path d="M162 199C153 216 147 236 152 256C147 276 153 296 162 313" stroke="#CDEAFF" stroke-width="7" stroke-linecap="round"/>
 </svg>

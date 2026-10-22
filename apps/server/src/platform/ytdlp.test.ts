@@ -38,6 +38,54 @@ describe('YtDlpAdapter', () => {
     expect(result.streams[0]?.label).toBe('720P')
   })
 
+  it('解析 YouTube 格式并只保留下载所需的安全请求头', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'youtube',
+      exec: async () => ({
+        stdout: JSON.stringify({
+          id: 'dQw4w9WgXcQ',
+          title: 'video',
+          thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+          formats: [{
+            format_id: '18', url: 'https://rr.example/video.mp4', ext: 'mp4',
+            vcodec: 'avc1', acodec: 'mp4a', height: 360,
+            http_headers: {
+              Referer: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+              'User-Agent': 'yt-dlp-agent',
+              Cookie: 'secret=must-not-leak',
+              Authorization: 'Bearer must-not-leak',
+            },
+          }],
+        }),
+        stderr: '',
+      }),
+    })
+
+    const result = await adapter.parse('https://youtu.be/dQw4w9WgXcQ')
+    expect(result.platform).toBe('youtube')
+    expect(result.cover).toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg')
+    expect(result.streams[0]).toMatchObject({
+      kind: 'video',
+      combined: true,
+      httpHeaders: {
+        Referer: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'User-Agent': 'yt-dlp-agent',
+      },
+    })
+    expect(JSON.stringify(result.streams[0]?.httpHeaders)).not.toMatch(/secret|Authorization/i)
+  })
+
+  it('YouTube Cookie 错误不会指向尚不存在的平台 Cookie 设置', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'youtube',
+      exec: async () => { throw new Error('ERROR: Sign in to confirm you’re not a bot: cookies are needed') },
+    })
+    await expect(adapter.parse('https://www.youtube.com/watch?v=example')).rejects.toMatchObject({
+      code: 'MEDIA_COOKIE_REQUIRED',
+      message: expect.stringContaining('尚未支持'),
+    })
+  })
+
   it('保留小红书合并音视频格式并规范化 CDN 封面为 HTTPS', async () => {
     const adapter = new YtDlpAdapter({
       platform: 'xiaohongshu',

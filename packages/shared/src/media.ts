@@ -15,6 +15,7 @@ export const mediaStreamSchema = z.object({
   height: z.number().int().positive().optional(),
   codecs: z.string().optional(),
   mimeType: z.string().optional(),
+  httpHeaders: z.record(z.string()).optional(),
   bitrate: z.number().int().nonnegative().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   available: z.boolean().default(true),

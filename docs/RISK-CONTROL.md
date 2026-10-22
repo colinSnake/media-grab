@@ -30,7 +30,7 @@ adapter 不得向 UI 暴露 Cookie、签名密钥、完整带参 URL、设备指
 - 数据库和任务临时目录使用系统应用数据目录，不写入源码仓库。
 - 用户删除账号或清理数据时，必须同时删除凭据、缓存、任务 manifest 和诊断日志。
 
-当前过渡核心已实现 B站账号凭据的独立加密保险箱：SQLite 只保存账号元数据，Cookie 使用 AES-256-GCM 加密并以 0600 权限落盘；Tauri 原生 core 接管后应替换为系统 Keychain / Credential Manager 后端。
+当前 Node 核心已实现 B站账号凭据的独立加密保险箱：SQLite 只保存账号元数据，Cookie 使用 AES-256-GCM 加密并以 0600 权限落盘。桌面版若后续接入系统 Keychain / Credential Manager，应通过明确的凭据存储接口集成，不以迁移业务核心为前提。
 
 ## 4. 网络与风控
 

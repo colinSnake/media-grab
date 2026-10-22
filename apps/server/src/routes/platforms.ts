@@ -11,8 +11,7 @@ export const platformRoutes: FastifyPluginAsync<PlatformRoutesDeps> = async (app
       extractor,
       platforms: platformCatalog.map((item) => ({
         ...item,
-        ready: item.platform === 'bilibili' || extractor.available,
-        reason: item.platform === 'bilibili' || extractor.available ? '' : '需要 yt-dlp extractor',
+        ...opts.services.media.platformReadiness(item.platform, extractor.available),
       })),
     }
   })

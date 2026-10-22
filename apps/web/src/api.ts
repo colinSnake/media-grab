@@ -9,8 +9,8 @@ import type {
   MediaParseResult,
   ParseResult,
   TaskSnapshot,
-  DouyinCookieStatus,
-  XiaohongshuCookieStatus,
+  CookieAccountPlatform,
+  CookieStatus,
 } from '@mediagrab/shared'
 
 /** M1 起 /api/health 的响应类型由 shared 提供，前后端共用同一份定义（NFR-07） */
@@ -36,28 +36,16 @@ export function removeAccount(id: string): Promise<void> {
   return request<void>(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export function getDouyinCookieStatus(): Promise<DouyinCookieStatus> {
-  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie')
+export function getCookieStatus(platform: CookieAccountPlatform): Promise<CookieStatus> {
+  return request<CookieStatus>(`/api/accounts/${platform}/cookie`)
 }
 
-export function saveDouyinCookie(cookie: string): Promise<DouyinCookieStatus> {
-  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie', { method: 'POST', body: JSON.stringify({ cookie }) })
+export function saveCookie(platform: CookieAccountPlatform, cookie: string): Promise<CookieStatus> {
+  return request<CookieStatus>(`/api/accounts/${platform}/cookie`, { method: 'POST', body: JSON.stringify({ cookie }) })
 }
 
-export function clearDouyinCookie(): Promise<DouyinCookieStatus> {
-  return request<DouyinCookieStatus>('/api/accounts/douyin/cookie', { method: 'DELETE' })
-}
-
-export function getXiaohongshuCookieStatus(): Promise<XiaohongshuCookieStatus> {
-  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie')
-}
-
-export function saveXiaohongshuCookie(cookie: string): Promise<XiaohongshuCookieStatus> {
-  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie', { method: 'POST', body: JSON.stringify({ cookie }) })
-}
-
-export function clearXiaohongshuCookie(): Promise<XiaohongshuCookieStatus> {
-  return request<XiaohongshuCookieStatus>('/api/accounts/xiaohongshu/cookie', { method: 'DELETE' })
+export function clearCookie(platform: CookieAccountPlatform): Promise<CookieStatus> {
+  return request<CookieStatus>(`/api/accounts/${platform}/cookie`, { method: 'DELETE' })
 }
 
 function readErrorMessage(data: unknown): string | undefined {
@@ -80,10 +68,10 @@ function apiBase(): string {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${apiBase()}${url}`, {
-      headers: { 'Content-Type': 'application/json' },
-      ...init,
-    })
+    const headers = new Headers(init?.headers)
+    if (init?.body === undefined) headers.delete('Content-Type')
+    else if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    response = await fetch(`${apiBase()}${url}`, { ...init, headers })
   } catch {
     throw new Error('本地核心未连接，请先启动 MediaGrab 核心服务（默认端口 9070）。')
   }

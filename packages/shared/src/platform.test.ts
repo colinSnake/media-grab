@@ -1,12 +1,43 @@
 import { describe, expect, it } from 'vitest'
-import { detectPlatform, parseMediaInput } from './platform.js'
+import { detectPlatform, parseMediaInput, platformCoverReferer, platformForCoverHost, platformForHost } from './platform.js'
 import { mediaParseResultSchema } from './media.js'
 
 describe('platform input', () => {
-  it('识别三类首批平台', () => {
+  it('识别目录中配置的平台域名', () => {
     expect(detectPlatform('BV1GJ411x7h7')).toBe('bilibili')
     expect(detectPlatform('https://v.douyin.com/abc123/')).toBe('douyin')
     expect(detectPlatform('https://www.xiaohongshu.com/explore/abc')).toBe('xiaohongshu')
+    expect(detectPlatform('https://youtu.be/dQw4w9WgXcQ')).toBe('youtube')
+    expect(detectPlatform('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('youtube')
+  })
+
+  it('从包含说明文字的 YouTube 分享文本中提取链接', () => {
+    expect(parseMediaInput('Watch this video: https://youtu.be/dQw4w9WgXcQ?t=42')).toEqual({
+      ok: true,
+      value: {
+        platform: 'youtube',
+        raw: 'https://youtu.be/dQw4w9WgXcQ?t=42',
+        url: 'https://youtu.be/dQw4w9WgXcQ?t=42',
+      },
+    })
+  })
+
+  it('不会把伪造的平台后缀域名当作受支持来源', () => {
+    expect(detectPlatform('https://youtube.com.example.org/watch?v=1')).toBe('unknown')
+    expect(detectPlatform('https://notyoutube.com/watch?v=1')).toBe('unknown')
+  })
+
+  it('按最长后缀边界匹配平台域名，并忽略末尾点号', () => {
+    expect(platformForHost('WWW.YouTube.COM.')).toBe('youtube')
+    expect(platformForHost('cdn.youtube.com.example.org')).toBeUndefined()
+    expect(platformForHost('xhslink.com')).toBe('xiaohongshu')
+  })
+
+  it('从共享目录解析封面 CDN 白名单和回源地址', () => {
+    expect(platformForCoverHost('i.ytimg.com')).toBe('youtube')
+    expect(platformCoverReferer('i.ytimg.com')).toBe('https://www.youtube.com/')
+    expect(platformForCoverHost('p3-sign.douyinpic.com')).toBe('douyin')
+    expect(platformForCoverHost('ytimg.com.example.org')).toBeUndefined()
   })
 
   it('从平台分享文案中抽取短链', () => {
@@ -25,6 +56,18 @@ describe('platform input', () => {
         platform: 'douyin',
         raw: 'https://www.douyin.com/video/7688917872717942059',
         url: 'https://www.douyin.com/video/7688917872717942059',
+      },
+    })
+  })
+
+  it('抖音精选页的非法 modal_id 不会被改写', () => {
+    const result = parseMediaInput('https://www.douyin.com/jingxuan?modal_id=not-a-video-id')
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        platform: 'douyin',
+        raw: 'https://www.douyin.com/jingxuan?modal_id=not-a-video-id',
+        url: 'https://www.douyin.com/jingxuan?modal_id=not-a-video-id',
       },
     })
   })
@@ -56,7 +99,7 @@ describe('platform input', () => {
   it('未知来源给出统一文案', () => {
     expect(parseMediaInput('https://example.com/video/1')).toEqual({
       ok: false,
-      reason: '无法识别来源，支持 B站、抖音和小红书链接',
+      reason: '无法识别来源，支持B站、抖音、小红书、YouTube链接',
     })
   })
 

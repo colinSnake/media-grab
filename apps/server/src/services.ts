@@ -1,4 +1,4 @@
-import type { AppConfig } from '@mediagrab/shared'
+import { platformCatalog, type AppConfig, type ExtractorPlatform } from '@mediagrab/shared'
 import { BiliClient } from './bili/client.js'
 import { FingerprintService } from './bili/fingerprint.js'
 import { BiliHttp } from './bili/http.js'
@@ -103,18 +103,17 @@ export function createServices(options: CreateServicesOptions): Services {
 
   const bili = new BiliClient({ http, wbi, fingerprint, sessionProvider: () => accountService.session(), logger })
   const platforms = new PlatformRegistry(bili)
+  const extractorPlatforms = platformCatalog.filter(
+    (item): item is typeof item & { platform: ExtractorPlatform } => item.requiresExtractor,
+  )
   const media = new MediaRegistry({
     bili,
     config,
     logger,
-    cookieProviders: {
-      douyin: () => accountService.douyinCookie(),
-      xiaohongshu: () => accountService.xiaohongshuCookie(),
-    },
+    cookieProviders: Object.fromEntries(extractorPlatforms.map(({ platform }) => [platform, () => accountService.cookie(platform)])) as Partial<Record<ExtractorPlatform, () => string | undefined>>,
   })
   const downloads = new TaskService({
     repo: tasks,
-    bili,
     platforms,
     media,
     config,
