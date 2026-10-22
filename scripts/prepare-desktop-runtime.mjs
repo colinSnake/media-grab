@@ -100,12 +100,14 @@ try {
   for (const entry of ['src', 'scripts', 'download', 'testing', 'tsconfig.json', 'vitest.config.ts']) {
     await rm(path.join(runtimeDir, entry), { recursive: true, force: true })
   }
+  await rm(path.join(runtimeDir, 'dist', 'testing'), { recursive: true, force: true })
   await removeMatchingFiles(path.join(runtimeDir, 'dist'), (name) => name.endsWith('.test.js'))
   const sharedPackage = path.join(runtimeDir, 'node_modules', '@mediagrab', 'shared')
   await rm(sharedPackage, { recursive: true, force: true })
   await mkdir(sharedPackage, { recursive: true })
   await cp(path.join(root, 'packages', 'shared', 'dist'), path.join(sharedPackage, 'dist'), { recursive: true })
   await cp(path.join(root, 'packages', 'shared', 'package.json'), path.join(sharedPackage, 'package.json'))
+  await removeMatchingFiles(path.join(sharedPackage, 'dist'), (name) => name.endsWith('.d.ts') || name.endsWith('.map'))
   await cp(webDist, path.join(runtimeDir, 'web'), { recursive: true })
   await cp(nodeSource, path.join(runtimeDir, nodeName))
   if (process.platform !== 'win32') await chmod(path.join(runtimeDir, nodeName), 0o755)

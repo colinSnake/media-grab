@@ -1,7 +1,13 @@
 <p align="center">
-  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="72" valign="middle" alt="MediaGrab 标志" />
-  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="320" valign="middle" alt="MediaGrab" />
+  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="140" valign="middle" alt="MediaGrab 标志" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="620" valign="middle" alt="MediaGrab" />
 </p>
+
+<br />
+<br />
+
+<br />
 
 > **把多平台媒体整理，变成一件清楚、可追踪的本地工作。**
 >

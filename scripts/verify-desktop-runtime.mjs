@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { readlink, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -8,7 +10,10 @@ import { fileURLToPath } from 'node:url'
 const execFileAsync = promisify(execFile)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const runtimeDir = path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'core')
-const toolsDir = path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'media-tools', `${process.platform}-${process.arch}`)
+const toolsRoot = process.env.MEDIA_TOOLS_OUTPUT_DIR?.trim()
+  ? path.resolve(process.env.MEDIA_TOOLS_OUTPUT_DIR)
+  : path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'media-tools')
+const toolsDir = path.join(toolsRoot, `${process.platform}-${process.arch}`)
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const toolSuffix = process.platform === 'win32' ? '.exe' : ''
 
@@ -46,7 +51,7 @@ await mustBeFile(path.join(runtimeDir, 'web', 'index.html'), 'web entry')
 await mustBeFile(path.join(runtimeDir, 'node_modules', '@mediagrab', 'shared', 'dist', 'index.js'), 'shared runtime')
 await checkNoAbsoluteSymlinks(runtimeDir)
 
-const forbidden = ['src', 'scripts', 'download']
+const forbidden = ['src', 'scripts', 'download', 'testing', path.join('dist', 'testing')]
 for (const name of forbidden) {
   if (await stat(path.join(runtimeDir, name)).then(() => true).catch(() => false)) {
     throw new Error(`runtime 不应包含开发目录: ${name}`)
@@ -61,6 +66,10 @@ if (runtimeBytes > runtimeLimit) {
 
 await mustBeFile(path.join(toolsDir, `ffmpeg${toolSuffix}`), 'bundled FFmpeg')
 await mustBeFile(path.join(toolsDir, `yt-dlp${toolSuffix}`), 'bundled yt-dlp')
+await mustBeFile(path.join(toolsDir, 'ffmpeg-LICENSE.txt'), 'FFmpeg license notice')
+await mustBeFile(path.join(toolsDir, 'lame-LICENSE.txt'), 'LAME license notice')
+await mustBeFile(path.join(toolsDir, 'yt-dlp-LICENSE.txt'), 'yt-dlp license notice')
+await mustBeFile(path.join(toolsDir, 'tools-manifest.json'), 'tool manifest')
 const toolsBytes = await directorySize(toolsDir)
 const toolsLimit = Number(process.env.MEDIA_GRAB_TOOLS_LIMIT_MB ?? 180) * 1024 * 1024
 if (toolsBytes > toolsLimit) {
@@ -73,6 +82,20 @@ const [ffmpeg, ytdlp] = await Promise.all([
 ])
 if (!/^ffmpeg version\s/i.test(ffmpeg.stdout)) throw new Error('内置 FFmpeg 没有返回可识别的版本信息。')
 if (!/^\d+\.\d+(?:\.\d+)?(?:$|\s)/.test(ytdlp.stdout.trim())) throw new Error('内置 yt-dlp 没有返回可识别的版本信息。')
+const manifest = JSON.parse(await readFile(path.join(toolsDir, 'tools-manifest.json'), 'utf8'))
+if (manifest.target !== `${process.platform}-${process.arch}`) throw new Error('工具 manifest 的目标平台与当前构建不一致。')
+for (const [name, expectedHash] of [
+  [`ffmpeg${toolSuffix}`, manifest.ffmpeg?.sha256],
+  [`yt-dlp${toolSuffix}`, manifest.ytDlp?.sha256],
+]) {
+  if (!/^[a-f0-9]{64}$/.test(expectedHash ?? '')) throw new Error(`${name} manifest SHA-256 无效。`)
+  const actualHash = createHash('sha256').update(await readFile(path.join(toolsDir, name))).digest('hex')
+  if (actualHash !== expectedHash) throw new Error(`${name} 与工具 manifest 中的 SHA-256 不匹配。`)
+}
+if (!manifest.ffmpeg?.version || !ffmpeg.stdout.includes(`ffmpeg version ${manifest.ffmpeg.version}`)) {
+  throw new Error('FFmpeg 实际版本与工具 manifest 不一致。')
+}
+if (ytdlp.stdout.trim() !== manifest.ytDlp?.version) throw new Error('yt-dlp 实际版本与工具 manifest 不一致。')
 console.log(JSON.stringify({
   target: `${process.platform}-${process.arch}`,
   runtimeMiB: Number((runtimeBytes / 1024 / 1024).toFixed(1)),

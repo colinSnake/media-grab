@@ -1,13 +1,13 @@
-<svg width="520" height="112" viewBox="0 0 520 112" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="520" height="128" viewBox="0 0 520 128" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="wordmark" x1="246" y1="22" x2="430" y2="88" gradientUnits="userSpaceOnUse">
+    <linearGradient id="wordmark" x1="18" y1="44" x2="492" y2="88" gradientUnits="userSpaceOnUse">
       <stop stop-color="#6A4FE5"/>
       <stop offset="1" stop-color="#2D9BEA"/>
     </linearGradient>
   </defs>
 
-  <text x="18" y="76" fill="#263080" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2">Media</text>
-  <text x="239" y="76" fill="url(#wordmark)" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2">Grab</text>
-  <path d="M244 94C306 105 387 103 477 86" stroke="url(#wordmark)" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="482" cy="84" r="5" fill="#2D9BEA"/>
+  <text x="18" y="76" fill="url(#wordmark)" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2" textLength="262" lengthAdjust="spacingAndGlyphs">Media</text>
+  <text x="286" y="76" fill="url(#wordmark)" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2" textLength="200" lengthAdjust="spacingAndGlyphs">Grab</text>
+  <path d="M24 94C170 122 375 124 492 86" stroke="url(#wordmark)" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="497" cy="84" r="5" fill="#2D9BEA"/>
 </svg>

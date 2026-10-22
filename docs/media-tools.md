@@ -12,10 +12,12 @@ parallel `resources/core` bundle while passing `MEDIA_TOOLS_DIR`.
 
 ## Size budget
 
-On the current macOS arm64 development host, the prepared Node core is about
-`147 MB` uncompressed: the Node executable is about `115 MB`, production
-dependencies about `29 MB`, and the web bundle about `2 MB`. The current debug
-`.app` is about `171 MB` before FFmpeg and yt-dlp are staged.
+On the current macOS arm64 development host, the optimized Node core is about
+`142 MiB` uncompressed: the Node executable is about `128 MiB`, production
+dependencies about `11 MiB`, and the web bundle about `2.5 MiB`. Stripping Node
+can save about `26 MiB`, but invalidates its original signature, so release
+builds keep the upstream executable unchanged until the macOS signing workflow
+is validated.
 
 The final installed size will normally gain roughly tens of megabytes for
 yt-dlp and tens to low hundreds of megabytes for FFmpeg, depending on target
@@ -70,12 +72,16 @@ Use the official standalone release for the target platform, pin the release
 version and SHA-256 in the release workflow, and ship matching third-party
 notices. `pnpm prepare:release-tools` requires fixed `YT_DLP_VERSION`,
 `YT_DLP_URL`, and `YT_DLP_SHA256` values. URLs must point to the final executable,
-not a zip or tar archive. Do not call yt-dlp's self-updater from
+not a zip or tar archive. For local release preparation, set `YT_DLP_BIN` to an
+already downloaded executable and provide the same version/hash variables.
+Do not call yt-dlp's self-updater from
 the installed application; update it together with a signed MediaGrab release.
 
-The initial release matrix is macOS universal, Windows x64, and Linux x64. Add
-Windows arm64 and Linux arm64 only after the corresponding desktop runtime and
-installer paths are verified.
+Build separate macOS arm64 and x64 packages. A universal package would need to
+ship two Node runtimes and two FFmpeg binaries, increasing resource size
+without improving the architecture-specific installer experience. The initial
+matrix is macOS arm64/x64, Windows x64, and Linux x64. Add Windows arm64 and
+Linux arm64 only after those desktop runtime and installer paths are verified.
 
 ## FFmpeg policy
 
@@ -83,8 +89,27 @@ FFmpeg is built or sourced as a pinned executable for each target. The initial
 release build must use an LGPL-compatible configuration without GPL or nonfree
 components. `pnpm prepare:release-tools` requires fixed `FFMPEG_URL` and
 `FFMPEG_SHA256` values. URLs must point to a standalone executable with the
-required codecs, not a shared-library archive. Each release stores the exact source revision,
-configure flags, checksums, and license notices alongside the artifacts.
+required codecs, not a shared-library archive. For local release preparation,
+set `FFMPEG_BIN` to the standalone executable. Set `FFMPEG_VERSION`,
+`FFMPEG_LICENSE_FILE`, and `YT_DLP_LICENSE_FILE`; the script verifies the
+version output, rejects GPL/nonfree FFmpeg builds, requires `libmp3lame`, and
+copies both notices plus a checksum manifest into the bundle. Each release
+stores the exact source revision, configure flags, checksums, and notices.
+
+The final build command is run from the repository root with both tool inputs
+and their license notices configured:
+
+```bash
+YT_DLP_BIN=/path/to/yt-dlp \
+YT_DLP_VERSION=<pinned-version> \
+YT_DLP_SHA256=<64-character-sha256> \
+YT_DLP_LICENSE_FILE=/path/to/yt-dlp-license.txt \
+FFMPEG_BIN=/path/to/ffmpeg \
+FFMPEG_VERSION=<pinned-version> \
+FFMPEG_SHA256=<64-character-sha256> \
+FFMPEG_LICENSE_FILE=/path/to/ffmpeg-license.txt \
+pnpm build:desktop:release
+```
 
 Do not commit large binaries to the application repository. The release
 workflow injects them into `resources/media-tools` before `tauri build`.
@@ -92,8 +117,8 @@ workflow injects them into `resources/media-tools` before `tauri build`.
 ## Remaining release work
 
 - Build or obtain reproducible FFmpeg artifacts for macOS, Windows, and Linux.
-- Add per-target checksum/version values to the release CI matrix and verify
-  third-party license notice generation.
+- Record per-target checksums, versions, FFmpeg configure flags, and license
+  notices in the release matrix.
 - Test service lifecycle, resource lookup, and core log rotation on each OS.
 - Add About/diagnostic output for tool version, path, architecture, and license.
 - Run a real installed-package download test for each target.

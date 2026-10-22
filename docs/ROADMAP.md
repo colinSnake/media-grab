@@ -69,7 +69,7 @@
 - [ ] 在真实安装包中验收 Node 运行时、Fastify 服务和数据目录的生命周期。
 - [x] 确定 FFmpeg/yt-dlp 随包提供的分发策略、目标目录和版本校验方式。
 - [x] 增加发布工具下载脚本，要求固定 URL、版本和 SHA-256 后才会打包。
-- [ ] 为三平台固定 FFmpeg/yt-dlp 发布版本和哈希，并附带许可证说明。
+- [ ] 为 macOS arm64/x64、Windows x64、Linux x64 固定 FFmpeg/yt-dlp 版本和哈希，并附带许可证说明。
 
 ## D2：桌面运行时集成
 
@@ -80,7 +80,7 @@
 
 ## D3：发布
 
-- [ ] macOS universal / Windows x64+arm64 / Linux AppImage 或 deb。
+- [ ] macOS arm64+x64 独立安装包 / Windows x64 / Linux x64 AppImage 或 deb。
 - [ ] 代码签名、自动更新、版本回滚和崩溃日志脱敏。
 - [ ] 发布前用真实安装包验证下载目录、FFmpeg、通知和卸载行为。
 
