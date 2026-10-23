@@ -18,8 +18,11 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>
  * 进度必须按阶段分别累计：dash 下视频流与音频流是两次独立传输，
  * 若共用一个计数字段，后一阶段会覆盖前一阶段，表现就是进度条回退。
  */
-export const taskPhaseSchema = z.enum(['pending', 'video', 'audio', 'merge', 'done'])
+export const taskPhaseSchema = z.enum(['pending', 'video', 'audio', 'image', 'merge', 'done'])
 export type TaskPhase = z.infer<typeof taskPhaseSchema>
+
+export const taskOutputSchema = z.object({ kind: z.enum(['video', 'audio', 'image']), fileName: z.string().min(1) })
+export type TaskOutput = z.infer<typeof taskOutputSchema>
 
 export const taskSnapshotSchema = z.object({
   id: z.string(),
@@ -48,6 +51,8 @@ export const taskSnapshotSchema = z.object({
   speedBps: z.number().int().nonnegative().default(0),
   /** 最终产物相对 savePath 的文件名 */
   fileName: z.string().default(''),
+  /** 一个任务可同时保存视频和音频；旧任务仍可通过 fileName 读取。 */
+  files: z.array(taskOutputSchema).default([]),
   error: z.string().default(''),
   updatedAt: z.number().int(),
 })

@@ -13,7 +13,7 @@ const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const nodeSource = process.env.MEDIA_GRAB_NODE_BIN?.trim() || process.execPath
 
 function run(command, args, env = {}) {
-  if (command === 'pnpm') {
+  if (command === 'pnpm' && process.platform === 'win32') {
     const pnpmExecutable = process.env.npm_execpath
     if (pnpmExecutable) {
       const isJavaScriptEntrypoint = /\.(?:c?js)$/i.test(pnpmExecutable)
@@ -67,6 +67,8 @@ run('pnpm', ['build:web'])
 await mkdir(runtimeDir, { recursive: true })
 
 console.log('收集 server 生产依赖 ...')
+// pnpm 10 requires injected workspace packages unless --legacy is explicit.
+// The release deploy is deliberately flattened to a self-contained hoisted runtime.
 run('pnpm', ['--filter', '@mediagrab/server', 'deploy', deployDir, '--prod', '--legacy', '--config.node-linker=hoisted'])
 
 // pnpm deploy keeps a self-link for the workspace package. It is useless at

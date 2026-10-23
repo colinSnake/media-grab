@@ -1,16 +1,19 @@
 name: Desktop builds
 
+# GitHub has no commit-message filter for `on.push`; skip jobs before allocating
+# runners unless the pushed branch HEAD contains the opt-in marker.
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - '**'
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-${{ github.ref }}
+  # A skipped, unmarked push must not cancel a running marked/manual build.
+  group: desktop-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'build-ci-cd') }}
   cancel-in-progress: true
 
 env:
@@ -21,6 +24,7 @@ env:
 jobs:
   checks:
     name: Type checks and tests
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'build-ci-cd') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -73,7 +77,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
+          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 xvfb xauth dbus-x11
       - name: Install NSIS
         if: runner.os == 'Windows'
         run: choco install nsis -y --no-progress
@@ -117,6 +121,14 @@ jobs:
       - name: Remove hidden macOS volume icon file
         if: runner.os == 'macOS'
         run: node scripts/finalize-macos-dmg.mjs
+      - name: Install and smoke-test Linux deb and AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash scripts/ci-smoke-linux.sh
+      - name: Install and smoke-test Windows NSIS package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/ci-smoke-windows.ps1
       - name: Collect installers and checksums
         run: node scripts/ci-release-tools.mjs collect
       - name: Upload installers
@@ -143,6 +155,7 @@ jobs:
           path: |
             .release-tools/${{ matrix.target }}/build-records/
             apps/desktop/src-tauri/resources/core/runtime.json
+            ${{ runner.temp }}/mediagrab-installed-smoke-*/**/core.log
             apps/desktop/src-tauri/resources/media-tools/${{ matrix.target }}/tools-manifest.json
           if-no-files-found: ignore
           retention-days: 7

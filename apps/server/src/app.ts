@@ -5,6 +5,8 @@ import fastifyCors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { AppConfig } from '@mediagrab/shared'
 import { httpStatusOf, toApiErrorBody } from './lib/errors.js'
+import { corsOrigins, isAllowedHost, isAllowedOrigin } from './lib/local-access.js'
+import { CORE_NONCE_HEADER, CORE_PROOF_HEADER, CORE_TOKEN_HEADER, coreProof, isPermittedMediaQuery, matchesCoreToken } from './lib/core-auth.js'
 import { resolveWebDist } from './paths.js'
 import { biliRoutes } from './routes/bili.js'
 import { configRoutes } from './routes/config.js'
@@ -29,6 +31,10 @@ export interface BuildAppOptions {
   services?: Services
   /** 覆盖 SQLite 路径（仅自建服务时生效） */
   dbPath?: string
+  /** Packaged desktop core uses a fixed, non-editable loopback endpoint. */
+  desktopCore?: boolean
+  /** Only packaged core uses this per-launch 256-bit secret; Vite dev remains unauthenticated. */
+  coreToken?: string
 }
 
 const NOT_BUILT_HINT =
@@ -36,7 +42,11 @@ const NOT_BUILT_HINT =
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logger === false ? false : { level: process.env.LOG_LEVEL ?? 'info' },
+    logger: options.logger === false ? false : {
+      level: process.env.LOG_LEVEL ?? 'info',
+      // Signed CDN URLs and the media subresource credential must never reach core.log.
+      serializers: { req: (req: { method: string; url: string }) => ({ method: req.method, url: req.url.split('?', 1)[0] }) },
+    },
   })
 
   // 统一错误信封必须**在任何插件注册之前**设置：之后注册的路由上下文才会继承它。
@@ -48,10 +58,43 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return reply.status(status).type('application/json').send(toApiErrorBody(err))
   })
 
+  app.addHook('onRequest', async (req, reply) => {
+    if (!isAllowedHost(req.headers.host) ||
+        (req.headers.origin !== undefined && !isAllowedOrigin(req.headers.origin, req.headers.host))) {
+      return reply.status(403).send({
+        error: { code: 'LOCAL_ACCESS_DENIED', message: '仅允许本机应用访问', kind: 'forbidden', retryable: false },
+      })
+    }
+    if (options.coreToken !== undefined && req.url.startsWith('/api/') && req.method !== 'OPTIONS') {
+      const url = new URL(req.url, 'http://localhost')
+      if (url.pathname !== '/api/health') {
+        const fromProtocol = url.pathname === '/api/ws' && req.headers.upgrade?.toLowerCase() === 'websocket'
+          ? req.headers['sec-websocket-protocol']?.split(',').map((value) => value.trim()).find((value) => value.startsWith('mg-'))?.slice(3)
+          : undefined
+        const queryToken = isPermittedMediaQuery(req.method, url.pathname) ? url.searchParams.get('media_token') : undefined
+        if (![req.headers[CORE_TOKEN_HEADER], fromProtocol, queryToken].some((value) => matchesCoreToken(options.coreToken!, value))) {
+          return reply.status(403).send({
+            error: { code: 'CORE_AUTH_REQUIRED', message: '请从已启动的桌面应用访问本地服务', kind: 'auth', retryable: false },
+          })
+        }
+      }
+    }
+  })
+
+  if (options.coreToken !== undefined) {
+    app.addHook('onSend', async (req, reply, payload) => {
+      const nonce = req.headers[CORE_NONCE_HEADER]
+      if (req.url === '/api/health' && reply.statusCode === 200 && typeof nonce === 'string' && /^[a-f0-9]{32}$/.test(nonce)) {
+        reply.header(CORE_PROOF_HEADER, coreProof(options.coreToken!, nonce))
+      }
+      return payload
+    })
+  }
+
   await app.register(fastifyCors, {
-    origin: ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'],
+    origin: corsOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
+    allowedHeaders: ['Content-Type', 'X-Mediagrab-Token'],
   })
 
   const ownsServices = options.services === undefined
@@ -75,7 +118,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(healthRoutes, { store: services.config, services, webDist, startedAt })
   await app.register(fastifyWebsocket)
-  await app.register(configRoutes, { store: services.config, onConfigChanged: () => services.downloads.configChanged() })
+  await app.register(configRoutes, { store: services.config, onConfigChanged: () => services.downloads.configChanged(), desktopCore: options.desktopCore })
   await app.register(biliRoutes, { services })
   await app.register(sessionRoutes, { services })
   await app.register(taskRoutes, { services })

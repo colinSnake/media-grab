@@ -1,4 +1,5 @@
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { execFileSync, spawnSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -136,6 +137,46 @@ describe('TaskService task identity', () => {
     expect(result.task.qualityLabel).toBe('720P')
   })
 
+  it('does not accept photo mode on a video-only platform', async () => {
+    const taskService = service()
+    await expect(taskService.create({ platform: 'bilibili', bvid: 'BV1GJ411x7h7', cid: 1, mode: 'image', title: '' })).rejects.toMatchObject({ code: 'INVALID_TASK' })
+  })
+
+  it('saves a selected Xiaohongshu photo as an image without FFmpeg or overwriting another photo', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-photo-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'xiaohongshu', input: 'https://www.xiaohongshu.com/explore/123', id: '123', title: 'album',
+      authorName: '', cover: '', durationSec: 0, itemCount: 2,
+      streams: [
+        { id: 'image:1', kind: 'image', combined: false, label: '图片 1', url: 'https://sns-webpic-qc.xhscdn.com/a', backupUrls: [], available: true, reason: '' },
+        { id: 'image:2', kind: 'image', combined: false, label: '图片 2', url: 'https://sns-webpic-qc.xhscdn.com/b', backupUrls: [], available: true, reason: '' },
+      ], capabilities: { video: false, audio: false, image: true, download: true },
+    }
+    const taskService = new TaskService({
+      repo: repo as never, platforms: {} as never,
+      media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '/no-ffmpeg', savePath: root, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: (async () => new Response(new Uint8Array([0x52, 0x49, 0x46, 0x46]), {
+        status: 200, headers: { 'content-type': 'image/webp', 'content-length': '4' },
+      })) as typeof fetch,
+    })
+    try {
+      const first = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'image', streamId: 'image:1', title: '' })
+      const second = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'image', streamId: 'image:2', title: '' })
+      await waitFor(() => taskService.get(first.task.id)?.status === 'success' && taskService.get(second.task.id)?.status === 'success')
+      const firstName = taskService.get(first.task.id)?.fileName ?? ''
+      const secondName = taskService.get(second.task.id)?.fileName ?? ''
+      expect(firstName).toBe('album-123-image 1.webp')
+      expect(secondName).toBe('album-123-image 2.webp')
+      expect(await readFile(path.join(root, firstName))).toEqual(await readFile(path.join(root, secondName)))
+      expect(taskService.get(first.task.id)?.phase).toBe('done')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('limits running downloads to downloadPoolSize and drains queued tasks', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-pool-'))
     const repo = new FakeTaskRepository()
@@ -149,7 +190,7 @@ describe('TaskService task identity', () => {
       authorName: '',
       cover: '',
       durationSec: 1,
-      streams: [{ id: 'combined-video', kind: 'video', combined: true, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
+      streams: [{ id: 'video-only', kind: 'video', combined: false, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
       itemCount: 1,
       capabilities: { video: true, audio: true, image: false, download: true },
     })
@@ -168,8 +209,8 @@ describe('TaskService task identity', () => {
     })
 
     try {
-      const first = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/1', mode: 'video+audio', audioContainer: 'm4a', title: '' })
-      const second = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/2', mode: 'video+audio', audioContainer: 'm4a', title: '' })
+      const first = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/1', mode: 'video', title: '' })
+      const second = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/2', mode: 'video', title: '' })
 
       expect(taskService.get(second.task.id)?.status).toBe('waiting')
       await waitFor(() => taskService.get(first.task.id)?.status === 'success' && taskService.get(second.task.id)?.status === 'success')
@@ -313,7 +354,7 @@ describe('TaskService task identity', () => {
     const repo = new FakeTaskRepository()
     const media: MediaParseResult = {
       platform: 'douyin', input: 'https://example.com/video/fallback', id: 'fallback', title: 'fallback-test', authorName: '', cover: '', durationSec: 1,
-      streams: [{ id: 'combined', kind: 'video', combined: true, label: '720P', url: 'https://example.com/primary', backupUrls: ['https://example.com/backup'], available: true, reason: '' }],
+      streams: [{ id: 'video', kind: 'video', combined: false, label: '720P', url: 'https://example.com/primary', backupUrls: ['https://example.com/backup'], available: true, reason: '' }],
       itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
     }
     const attempted: string[] = []
@@ -340,12 +381,58 @@ describe('TaskService task identity', () => {
     }
   })
 
+  it.skipIf(spawnSync('ffmpeg', ['-version']).status !== 0 || spawnSync('ffprobe', ['-version']).status !== 0)('extracts Xiaohongshu audio and saves two separate files in video+audio mode', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-audio-'))
+    const fixture = path.join(root, 'source.mp4')
+    const repo = new FakeTaskRepository()
+    try {
+      execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:v', 'mpeg4', '-c:a', 'aac', '-shortest', '-y', fixture])
+      const bytes = await readFile(fixture)
+      const media: MediaParseResult = {
+        platform: 'xiaohongshu', input: 'https://www.xiaohongshu.com/explore/6ad1ead3000000000a023a12', id: '6ad1ead3000000000a023a12', title: 'clip', authorName: '', cover: '', durationSec: 1,
+        streams: [{ id: '0', kind: 'video', combined: false, label: '720P', url: 'https://example.com/clip.mp4', backupUrls: [], available: true, reason: '' }],
+        itemCount: 1, capabilities: { video: true, audio: false, image: false, download: true },
+      }
+      const taskService = new TaskService({
+        repo: repo as never, platforms: {} as never, media: { parse: async () => media } as never,
+        config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+        dataDir: root,
+        fetchImpl: (async () => new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } })) as typeof fetch,
+      })
+      const probe = (name: string) => execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(root, name)], { encoding: 'utf8' }).trim().split('\n')
+
+      const audioTask = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'audio', audioContainer: 'm4a', title: media.title })
+      await waitFor(() => ['success', 'fail'].includes(taskService.get(audioTask.task.id)?.status ?? ''))
+      expect(taskService.get(audioTask.task.id)?.error).toBe('')
+      expect(taskService.get(audioTask.task.id)).toMatchObject({ status: 'success', files: [{ kind: 'audio', fileName: 'clip.m4a' }] })
+      expect(probe('clip.m4a')).toEqual(['audio'])
+
+      const mp3Task = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'audio', audioContainer: 'mp3', title: media.title })
+      await waitFor(() => ['success', 'fail'].includes(taskService.get(mp3Task.task.id)?.status ?? ''))
+      expect(taskService.get(mp3Task.task.id)).toMatchObject({ status: 'success', files: [{ kind: 'audio', fileName: 'clip.mp3' }] })
+      expect(probe('clip.mp3')).toEqual(['audio'])
+
+      const pairTask = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'video+audio', title: media.title })
+      await waitFor(() => ['success', 'fail'].includes(taskService.get(pairTask.task.id)?.status ?? ''))
+      expect(taskService.get(pairTask.task.id)).toMatchObject({ status: 'success', files: [{ kind: 'video', fileName: 'clip-video.mp4' }, { kind: 'audio', fileName: 'clip-audio.m4a' }] })
+      expect(probe('clip-video.mp4')).toEqual(['video'])
+      expect(probe('clip-audio.m4a')).toEqual(['audio'])
+
+      const videoTask = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'video', title: media.title })
+      await waitFor(() => ['success', 'fail'].includes(taskService.get(videoTask.task.id)?.status ?? ''))
+      expect(taskService.get(videoTask.task.id)?.status).toBe('success')
+      expect(probe('clip.mp4')).toEqual(['video'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('marks persisted waiting tasks as retryable after a restart', () => {
     const repo = new FakeTaskRepository()
     repo.seed({
       id: 'interrupted', platform: 'bilibili', input: '', sourceId: '', bvid: 'BV1GJ411x7h7', cid: 1,
       title: 'interrupted', status: 'waiting', phase: 'pending', mode: 'video+audio', totalBytes: 0,
-      downloadedBytes: 0, speedBps: 0, fileName: '', error: '', updatedAt: Date.now(),
+      downloadedBytes: 0, speedBps: 0, fileName: '', files: [], error: '', updatedAt: Date.now(),
     })
     new TaskService({
       repo: repo as never,

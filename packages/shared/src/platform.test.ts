@@ -48,14 +48,14 @@ describe('platform input', () => {
     })
   })
 
-  it('将抖音精选页的 modal_id 规范化为视频地址', () => {
-    const result = parseMediaInput('https://www.douyin.com/jingxuan?modal_id=7688917872717942059')
+  it.each(['7688917872717942059', '7699449302829059343'])('将抖音精选页 modal_id=%s 规范化为视频地址', (id) => {
+    const result = parseMediaInput(`https://www.douyin.com/jingxuan?modal_id=${id}`)
     expect(result).toEqual({
       ok: true,
       value: {
         platform: 'douyin',
-        raw: 'https://www.douyin.com/video/7688917872717942059',
-        url: 'https://www.douyin.com/video/7688917872717942059',
+        raw: `https://www.douyin.com/video/${id}`,
+        url: `https://www.douyin.com/video/${id}`,
       },
     })
   })

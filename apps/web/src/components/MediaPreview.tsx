@@ -1,5 +1,5 @@
-import { ArrowDownToLine, Check, FileVideo2, Music2, Pause, Play } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ArrowDownToLine, Check, FileVideo2, Image as ImageIcon, Music2, Play } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { platformLabel, type MediaParseResult, type ParseResult, type Platform, type QualityAvailability } from '@mediagrab/shared'
 import { apiUrl } from '../api'
 import { PlatformLogo } from './PlatformLogo'
@@ -9,6 +9,7 @@ interface MediaPreviewProps {
   genericParsed: MediaParseResult | null
   selectedQuality: number | null
   selectedStreamId: string | null
+  isParsing: boolean
   onSelectQuality: (quality: number) => void
   onSelectStream: (streamId: string) => void
   onSelectPage: (page: number) => void
@@ -30,55 +31,48 @@ function coverProxyUrl(cover: string): string {
   return apiUrl(`/api/cover?url=${encodeURIComponent(cover)}`)
 }
 
-function MediaCover({ cover, durationSec, videoUrl, platform }: { cover: string; durationSec: number; videoUrl?: string; platform: Platform }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
+function MediaField({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
+  return <div className={`media-field ${wide ? 'wide' : ''}`}><span className="media-field-label">{label}</span><div className="media-field-value">{children}</div></div>
+}
 
-  useEffect(() => {
-    setIsPlaying(false)
-    if (videoRef.current !== null) videoRef.current.pause()
-  }, [videoUrl])
-
-  useEffect(() => {
-    if (videoUrl === undefined) return
-    function handleKeyDown(event: KeyboardEvent) {
-      const target = event.target
-      if (event.code !== 'Space' || target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName))) return
-      event.preventDefault()
-      const video = videoRef.current
-      if (video === null) return
-      if (video.paused) void video.play().catch(() => setIsPlaying(false))
-      else video.pause()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [videoUrl])
-
-  function togglePlayback() {
-    const video = videoRef.current
-    if (video === null) return
-    if (video.paused) void video.play().catch(() => setIsPlaying(false))
-    else video.pause()
-  }
-
+function MediaCover({ cover, durationSec, platform }: { cover: string; durationSec: number; platform: Platform }) {
   return (
-    <div className={`media-cover ${videoUrl !== undefined ? 'playable' : ''} ${isPlaying ? 'is-playing' : ''}`}>
-      {cover ? <><div className="cover-fallback"><FileVideo2 /></div><img className="cover-image" src={coverProxyUrl(cover)} alt="" onError={(event) => event.currentTarget.remove()} />{
-        videoUrl !== undefined && <video ref={videoRef} src={videoUrl} poster={coverProxyUrl(cover)} preload="none" playsInline onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => setIsPlaying(false)} />
-      }</> : <div className="cover-fallback"><FileVideo2 /></div>}
+    <div className="media-cover">
+      {cover ? <><div className="cover-fallback"><FileVideo2 /></div><img className="cover-image" src={coverProxyUrl(cover)} alt="媒体封面" onError={(event) => event.currentTarget.remove()} /></> : <div className="cover-fallback"><FileVideo2 /></div>}
       <span className={`cover-platform ${platform}`} title={platformLabel[platform]}>{platform === 'unknown' ? <FileVideo2 className="platform-mark unknown-mark" aria-hidden="true" /> : <PlatformLogo platform={platform} className="platform-mark" />}</span>
-      {videoUrl !== undefined && <button type="button" className="cover-play" onClick={togglePlayback} aria-label={isPlaying ? '暂停预览' : '播放预览'} title={`${isPlaying ? '暂停' : '播放'}预览（空格）`}>{isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button>}
-      <span className="cover-duration">{formatDuration(durationSec)}</span>
+      {durationSec > 0 && <span className="cover-duration">{formatDuration(durationSec)}</span>}
     </div>
   )
 }
 
-export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedStreamId, onSelectQuality, onSelectStream, onSelectPage }: MediaPreviewProps) {
+export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedStreamId, isParsing, onSelectQuality, onSelectStream, onSelectPage }: MediaPreviewProps) {
   const selectedStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
-  const previewUrl = selectedStream?.kind === 'video' && selectedStream.available ? selectedStream.url : undefined
 
   return (
-    <section className="panel result-panel">
+    <section className={`panel result-panel ${parsed !== null || genericParsed !== null ? 'has-media' : ''}`}>
+      {(parsed !== null || genericParsed !== null) && <svg className="preview-ambient" viewBox="0 0 240 200" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="126" cy="98" r="82" strokeDasharray="2 8" />
+        <circle cx="126" cy="98" r="66" />
+        <g transform="rotate(-12 120 95)">
+          <rect x="45" y="41" width="138" height="92" rx="12" />
+          <path d="M45 61h138M65 41v20m22-20v20m22-20v20m22-20v20m22-20v20m22-20v20" />
+        </g>
+        <g transform="rotate(8 136 113)">
+          <rect className="preview-ambient-card" x="70" y="69" width="134" height="87" rx="12" />
+          <path d="m123 91 27 19-27 19Z" strokeLinejoin="round" />
+        </g>
+        <path d="M47 164h27l5-8 7 17 8-25 8 28 7-13h29m14 0h23m10 0h8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M199 34v12m-6-6h12M35 111v8m-4-4h8" strokeLinecap="round" />
+      </svg>}
+      {(parsed !== null || genericParsed !== null) && <svg className="preview-footer-ambient" viewBox="0 0 440 64" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="32" cy="32" r="24" />
+        <circle cx="32" cy="32" r="15" strokeDasharray="2 5" />
+        <path d="m28 25 11 7-11 7Z" strokeLinejoin="round" />
+        <path d="M78 40h58l6-7 7 14 9-25 10 31 8-21 7 8h103" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M302 40h44m8 0h10m8 0h60" strokeLinecap="round" strokeDasharray="3 6" />
+        <circle cx="286" cy="40" r="3" />
+        <path d="M104 22v7m-3.5-3.5h7M390 14v7m-3.5-3.5h7" strokeLinecap="round" />
+      </svg>}
       <div className="panel-heading">
         <div className="heading-title"><span className="heading-icon"><FileVideo2 /></span><div><h2>媒体预览</h2></div></div>
       </div>
@@ -93,39 +87,50 @@ export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedS
           <MediaCover cover={parsed.cover} durationSec={parsed.durationSec} platform="bilibili" />
           <div className="media-details">
             <div className="media-overview">
-              <div className="media-meta"><span className="media-id">{parsed.bvid}</span></div>
-              <h3 title={parsed.title}>{parsed.title}</h3>
-              <div className="creator-row">
-                <p className="creator">{parsed.ownerName || '未知创作者'} <span>·</span> {parsed.pages.length} 个分段</p>
-                {parsed.pages.length > 1 && <label className="page-picker">
-                  <span>分 P</span>
-                  <select value={parsed.page} onChange={(event) => onSelectPage(Number(event.target.value))}>
+              <div className="media-fields">
+                <MediaField label="标题" wide><h3 title={parsed.title}>{parsed.title}</h3></MediaField>
+                <MediaField label="编号"><span className="media-id">{parsed.bvid}</span></MediaField>
+                <MediaField label="作者"><p className="creator" title={parsed.ownerName || '未知创作者'}>{parsed.ownerName || '未知创作者'}</p></MediaField>
+                <MediaField label="分段"><div className="media-field-inline"><span className="creator">{parsed.pages.length} 个</span>{parsed.pages.length > 1 && <label className="page-picker">
+                  <span>选择</span>
+                  <select value={parsed.page} onChange={(event) => onSelectPage(Number(event.target.value))} disabled={isParsing}>
                     {parsed.pages.map((page) => <option key={page.page} value={page.page}>{`P${page.page}${page.part ? ` · ${page.part}` : ''}`}</option>)}
                   </select>
-                </label>}
+                </label>}</div></MediaField>
               </div>
             </div>
-            <div className="quality-list">
-              <div className="resource-label">清晰度与访问限制 <span>以当前身份实际返回为准</span></div>
+            <div className="quality-list resolution-list">
+              <div className="resource-label"><strong>视频清晰度</strong><span>{parsed.qualities.length} 个档位</span></div>
               <div className="quality-options">
-                {parsed.qualities.slice(0, 8).map((item) => <button key={item.qn} type="button" disabled={!item.available} title={item.available ? '可下载' : item.reason} className={`quality-option ${item.qn === selectedQuality ? 'selected' : ''} ${item.available ? '' : 'unavailable'}`} onClick={() => onSelectQuality(item.qn)}>{qualityLabel(item)}{!item.available && <small>{item.reason}</small>}</button>)}
+                {parsed.qualities.map((item) => <button key={item.qn} type="button" aria-pressed={item.qn === selectedQuality} disabled={!item.available} title={`${qualityLabel(item)}${item.available ? '' : ` · ${item.reason}`}`} className={`quality-option ${item.qn === selectedQuality ? 'selected' : ''} ${item.available ? '' : 'unavailable'}`} onClick={() => onSelectQuality(item.qn)}><span className="quality-option-heading"><span>{qualityLabel(item)}</span>{item.qn === selectedQuality && <Check aria-hidden="true" />}</span>{!item.available && <small>{item.reason}</small>}</button>)}
               </div>
             </div>
           </div>
         </div>
       ) : genericParsed !== null ? (
         <div className="media-result">
-          <MediaCover cover={genericParsed.cover ?? ''} durationSec={genericParsed.durationSec} videoUrl={previewUrl} platform={genericParsed.platform} />
+          <MediaCover cover={selectedStream?.kind === 'image' ? selectedStream.url : genericParsed.cover ?? ''} durationSec={genericParsed.durationSec} platform={genericParsed.platform} />
           <div className="media-details">
             <div className="media-overview">
-              <div className="media-meta"><span className="media-id">{genericParsed.id}</span></div>
-              <h3 title={genericParsed.title}>{genericParsed.title || '未命名媒体'}</h3>
-              <p className="creator">{genericParsed.authorName || '未知创作者'} <span>·</span> {genericParsed.streams.length} 种资源</p>
+              <div className="media-fields">
+                <MediaField label="标题" wide><h3 title={genericParsed.title}>{genericParsed.title || '未命名媒体'}</h3></MediaField>
+                <MediaField label="编号"><span className="media-id">{genericParsed.id}</span></MediaField>
+                <MediaField label="作者"><p className="creator" title={genericParsed.authorName || '未知创作者'}>{genericParsed.authorName || '未知创作者'}</p></MediaField>
+                <MediaField label="资源"><span className="creator">{genericParsed.streams.length} 种</span></MediaField>
+              </div>
             </div>
             <div className="quality-list">
               <div className="resource-label">资源格式 <span>选择一个</span></div>
               <div className="stream-options">
-                {[...genericParsed.streams].sort((left, right) => Number(right.available) - Number(left.available)).slice(0, 3).map((stream) => <button key={stream.id} type="button" disabled={!stream.available} title={stream.available ? undefined : stream.reason || '当前资源不可用'} className={`stream-option ${selectedStreamId === stream.id ? 'selected' : ''} ${stream.available ? '' : 'unavailable'}`} onClick={() => onSelectStream(stream.id)}><span className="stream-kind">{stream.kind === 'audio' ? <Music2 /> : <FileVideo2 />}</span><span className="stream-copy"><strong>{stream.kind === 'video' ? stream.label || '视频' : `音频 ${stream.label || ''}`}</strong><small>{stream.available ? stream.codecs || stream.mimeType || '媒体流' : stream.reason || '暂不可用'}</small></span>{selectedStreamId === stream.id && <Check className="stream-check" />}</button>)}
+                {[...genericParsed.streams].sort((left, right) => Number(right.available) - Number(left.available)).map((stream) => {
+                  const label = stream.kind === 'audio' ? `音频 ${stream.label || ''}`.trim() : stream.kind === 'image' ? stream.label || '图片' : stream.label || '视频'
+                  const detail = stream.available ? stream.codecs || stream.mimeType || '媒体流' : stream.reason || '暂不可用'
+                  return <button key={stream.id} type="button" disabled={!stream.available} aria-pressed={selectedStreamId === stream.id} title={`${label} · ${detail}`} className={`stream-option ${selectedStreamId === stream.id ? 'selected' : ''} ${stream.available ? '' : 'unavailable'}`} onClick={() => onSelectStream(stream.id)}>
+                    <span className="stream-kind" aria-hidden="true">{stream.kind === 'audio' ? <Music2 /> : stream.kind === 'image' ? <ImageIcon /> : <Play fill="currentColor" strokeWidth={1.5} />}</span>
+                    <span className="stream-copy"><strong>{label}</strong><small>{detail}</small></span>
+                    <span className="stream-check" aria-hidden="true">{selectedStreamId === stream.id && <Check />}</span>
+                  </button>
+                })}
               </div>
             </div>
           </div>

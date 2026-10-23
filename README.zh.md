@@ -63,7 +63,7 @@ MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链�
 
 产物通常位于 `apps/desktop/src-tauri/target/release/bundle/`。在一台系统上执行命令不会自动生成另外两种系统的原生安装包；要可靠发布，请分别在对应系统或相应 CI runner 上构建。
 
-也可以使用仓库的 **Actions → Desktop builds → Run workflow** 一次构建 macOS（Apple 芯片和 Intel）、Windows x64、Linux x64 安装包。CI 会自动准备随包 Node、FFmpeg 和 yt-dlp，详细触发方式和产物下载说明见 [GitHub Actions 桌面构建](./docs/desktop-ci.md)。
+最新推送的提交信息包含 `build-ci-cd` 时会自动构建；也可以使用仓库的 **Actions → Desktop builds → Run workflow** 手动一次构建 macOS（Apple 芯片和 Intel）、Windows x64、Linux x64 安装包。CI 会自动准备随包 Node、FFmpeg 和 yt-dlp，详细触发方式和产物下载说明见 [GitHub Actions 桌面构建](./docs/desktop-ci.md)。
 
 如果只想生成指定格式，可以直接调用 Tauri CLI。例如在 macOS 只构建 `.app` 和 `.dmg`：
 

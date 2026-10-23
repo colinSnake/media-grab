@@ -24,7 +24,11 @@ async function findDiskImages(directory) {
 }
 
 if (process.platform === 'darwin') {
-  const images = await findDiskImages(bundleDir)
+  // Tauri leaves a temporary read/write source image under bundle/macos while
+  // producing the distributable DMG. Only the final images in bundle/dmg are
+  // safe to post-process; touching the temporary source can make hdiutil fail
+  // with "Resource temporarily unavailable" while it is still mounted.
+  const images = await findDiskImages(path.join(bundleDir, 'dmg'))
   if (images.length === 0) throw new Error(`找不到待清理的 macOS DMG: ${bundleDir}`)
 
   for (const image of images) {

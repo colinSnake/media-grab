@@ -53,10 +53,16 @@ function extFor(mode: DownloadMode, audioContainer: 'm4a' | 'mp3' | undefined): 
   return 'mp4'
 }
 
+function imageExtension(stream: MediaStream): string {
+  const extension = (() => { try { return path.extname(new URL(stream.url).pathname).slice(1).toLowerCase() } catch { return '' } })()
+  if (['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(extension)) return extension
+  return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/avif': 'avif' } as Record<string, string>)[stream.mimeType ?? ''] ?? 'jpg'
+}
+
 function mediaStreamLabel(stream: MediaStream): string {
   if (stream.label !== '') return stream.label
   if (stream.width !== undefined && stream.height !== undefined) return `${stream.width}×${stream.height}`
-  return stream.codecs || stream.mimeType || (stream.kind === 'audio' ? '音频资源' : '视频资源')
+  return stream.codecs || stream.mimeType || (stream.kind === 'audio' ? '音频资源' : stream.kind === 'image' ? '图片资源' : '视频资源')
 }
 
 function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
@@ -81,6 +87,7 @@ function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
     downloadedBytes: 0,
     speedBps: 0,
     fileName: '',
+    files: [],
     error: '',
     updatedAt: now,
   }
@@ -144,6 +151,9 @@ export class TaskService {
         throw new ApiError('INVALID_TASK', detected.reason, 'invalid', 400)
       }
     }
+    if (task.mode === 'image' && task.platform !== 'xiaohongshu') {
+      throw new ApiError('INVALID_TASK', '目前仅支持小红书图文图片下载', 'invalid', 400)
+    }
     if (task.platform === 'bilibili' && (task.bvid === '' || task.cid === 0)) {
       if (task.input === '') {
         throw new ApiError('INVALID_TASK', '任务缺少 B站链接或 bvid/cid', 'invalid', 400)
@@ -162,10 +172,12 @@ export class TaskService {
       task.title = task.title || parsed.title
       task.input = parsed.input
       const requestedStream = parsed.streams.find((stream) => stream.id === task.streamId)
-      const selectedKind = task.mode === 'audio' ? 'audio' : 'video'
+      const selectedKind = task.mode === 'audio' ? 'audio' : task.mode === 'image' ? 'image' : 'video'
       if (requestedStream?.kind !== selectedKind || requestedStream.available !== true) {
         const preferred = task.mode === 'audio'
           ? parsed.streams.find((stream) => stream.kind === 'audio' && stream.available)
+            ?? parsed.streams.find((stream) => stream.kind === 'video' && stream.available && (stream.combined || task.platform === 'xiaohongshu'))
+          : task.mode === 'image' ? parsed.streams.find((stream) => stream.kind === 'image' && stream.available)
           : parsed.streams.find((stream) => stream.kind === 'video' && stream.available && (task.mode !== 'video+audio' || stream.combined)) ?? parsed.streams.find((stream) => stream.kind === 'video' && stream.available)
         task.streamId = preferred?.id
       }
@@ -304,23 +316,33 @@ export class TaskService {
     let task = this.#repo.get(id)
     if (task === null) return
     const workDir = path.join(this.#dataDir, 'tasks', id)
-    let outputTemp: string | undefined
+    const outputTemps: string[] = []
 
     try {
       await rm(workDir, { recursive: true, force: true })
       await mkdir(workDir, { recursive: true })
       task = this.save(task, { status: 'downloading', phase: 'pending', error: '' })
       if (task.platform === 'unknown') throw new ApiError('INVALID_TASK', '任务来源未知，无法下载', 'invalid', 400)
+      const platform = task.platform
+      const streamId = task.streamId
       const streams = await this.loadStreams(task, controller)
-      const video = task.mode === 'audio' ? undefined : this.pickGenericVideo(streams, task)
-      const audio = task.mode === 'video' || (task.mode === 'video+audio' && video?.combined === true) ? undefined : this.pickGenericAudio(streams, task)
-      const selectedStream = video ?? audio
-      if (task.mode !== 'audio' && video === undefined) throw new ApiError('NO_VIDEO_STREAM', '没有找到可下载的视频流', 'permission', 403)
-      const separateAudioRequired = task.mode !== 'video' && video?.combined !== true
-      if (separateAudioRequired && audio === undefined) throw new ApiError('NO_AUDIO_STREAM', '没有找到可下载的音频流', 'permission', 403)
+      const audio = task.mode === 'video' || task.mode === 'image' ? undefined : this.pickGenericAudio(streams, task)
+      const video = task.mode === 'image' ? undefined : task.mode === 'audio'
+        ? audio === undefined ? streams.find((stream) => stream.id === streamId && stream.kind === 'video' && stream.available && (stream.combined || platform === 'xiaohongshu'))
+          ?? streams.find((stream) => stream.kind === 'video' && stream.available && (stream.combined || platform === 'xiaohongshu')) : undefined
+        : this.pickGenericVideo(streams, task)
+      const imageStreamId = task.streamId
+      const image = task.mode === 'image' ? streams.find((stream) => stream.kind === 'image' && stream.id === imageStreamId && stream.available) : undefined
+      const audioFromVideo = video !== undefined && audio === undefined && (video.combined || task.platform === 'xiaohongshu')
+      const selectedStream = video ?? audio ?? image
+      if (task.mode === 'image' && image === undefined) throw new ApiError('NO_IMAGE_STREAM', '没有找到可下载的图片', 'permission', 403)
+      if ((task.mode === 'video' || task.mode === 'video+audio') && video === undefined) throw new ApiError('NO_VIDEO_STREAM', '没有找到可下载的视频流', 'permission', 403)
+      if ((task.mode === 'audio' || task.mode === 'video+audio') && audio === undefined && !audioFromVideo) throw new ApiError('NO_AUDIO_STREAM', '没有找到可下载的音频流', 'permission', 403)
 
       let videoPath: string | undefined
       let audioPath: string | undefined
+      let imagePath: string | undefined
+      let imageMime: string | undefined
       if (video !== undefined) {
         task = this.save(task, { phase: 'video' })
         videoPath = path.join(workDir, 'video.part')
@@ -332,52 +354,72 @@ export class TaskService {
         await this.downloadStream(audio, audioPath, task, controller, 'audio')
       }
 
+      if (image !== undefined) {
+        task = this.save(this.#repo.get(id) ?? task, { phase: 'image' })
+        imagePath = path.join(workDir, 'image.part')
+        imageMime = await this.downloadStream(image, imagePath, task, controller, 'image')
+      }
+
       const config = this.#config.get()
       const targetDir = resolveDownloadDir(config.savePath)
       await mkdir(targetDir, { recursive: true })
-      const ext = extFor(task.mode, task.audioContainer)
-      const fileName = `${safeName(task.title)}.${ext}`
-      const output = path.join(targetDir, fileName)
-      outputTemp = path.join(targetDir, `.${fileName}.${id}.tmp`)
-      task = this.save(this.#repo.get(id) ?? task, { phase: task.mode === 'video+audio' || (task.mode === 'audio' && task.audioContainer === 'mp3') ? 'merge' : 'done' })
+      const ext = image ? imageExtension({ ...image, mimeType: imageMime }) : extFor(task.mode, task.audioContainer)
+      const imageSuffix = image ? `-${safeName(task.sourceId).slice(0, 32)}-${safeName(image.id)}` : ''
+      const fileName = `${safeName(task.title)}${imageSuffix}.${ext}`
+      task = this.save(this.#repo.get(id) ?? task, { phase: image ? 'done' : 'merge' })
+      if (selectedStream === undefined) throw new ApiError('OUTPUT_MISSING', '下载结果不存在', 'fatal', 500)
 
-      if (selectedStream !== undefined) {
-        const genericPath = videoPath ?? audioPath ?? ''
-        if (task.mode === 'video+audio' && video?.combined !== true && videoPath !== undefined && audioPath !== undefined) {
-          await this.runFfmpeg([
-            '-i', videoPath,
-            '-i', audioPath,
-            '-map', '0:v:0',
-            '-map', '1:a:0',
-            '-c:v', 'copy',
-            '-c:a', 'copy',
-            '-shortest',
-            '-movflags', '+faststart',
-            '-y', outputTemp,
-          ], controller)
-        } else if (task.mode === 'audio' && task.audioContainer === 'mp3') {
-          await this.runFfmpeg([ '-i', genericPath, '-vn', '-c:a', 'libmp3lame', '-b:a', `${config.audioBitrateKbps}k`, '-y', outputTemp ], controller)
+      const files: TaskSnapshot['files'] = []
+      const pending: Array<{ temp: string; output: string }> = []
+      const prepare = (name: string, kind: TaskSnapshot['files'][number]['kind']) => {
+        const temp = path.join(targetDir, `.${name}.${id}.tmp`)
+        outputTemps.push(temp)
+        pending.push({ temp, output: path.join(targetDir, name) })
+        files.push({ kind, fileName: name })
+        return temp
+      }
+
+      if (videoPath !== undefined && task.mode !== 'audio') {
+        const videoName = task.mode === 'video+audio' ? `${safeName(task.title)}-video.mp4` : fileName
+        const temp = prepare(videoName, 'video')
+        if (video?.combined || task.platform === 'xiaohongshu') {
+          await this.runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-an', '-c:v', 'copy', '-f', 'mp4', '-y', temp], controller)
         } else {
-          await this.copyFile(genericPath, outputTemp)
+          await this.copyFile(videoPath, temp)
         }
-      } else {
-        throw new ApiError('OUTPUT_MISSING', '下载结果不存在', 'fatal', 500)
       }
-
-      if (!existsSync(outputTemp) || (await stat(outputTemp)).size === 0) {
-        throw new ApiError('OUTPUT_MISSING', '下载完成但输出文件不存在或为空', 'fatal', 500)
+      if (task.mode === 'audio' || task.mode === 'video+audio') {
+        const source = audioPath ?? videoPath
+        if (source === undefined) throw new ApiError('NO_AUDIO_STREAM', '没有找到可下载的音频流', 'permission', 403)
+        const container = task.mode === 'audio' ? task.audioContainer ?? 'm4a' : 'm4a'
+        const audioName = task.mode === 'video+audio' ? `${safeName(task.title)}-audio.m4a` : fileName
+        const temp = prepare(audioName, 'audio')
+        try {
+          await this.runFfmpeg(['-i', source, '-map', '0:a:0', '-vn', '-c:a', container === 'mp3' ? 'libmp3lame' : 'copy', ...(container === 'mp3' ? ['-b:a', `${config.audioBitrateKbps}k`] : []), '-f', container === 'mp3' ? 'mp3' : 'ipod', '-y', temp], controller)
+        } catch (error) {
+          if (error instanceof ApiError && error.code === 'FFMPEG_FAILED' && /matches no streams|does not contain any stream/i.test(error.message)) {
+            throw new ApiError('NO_AUDIO_STREAM', '视频文件没有可提取的音轨', 'permission', 403)
+          }
+          throw error
+        }
       }
-      await rename(outputTemp, output)
-      outputTemp = undefined
+      if (imagePath !== undefined) await this.copyFile(imagePath, prepare(fileName, 'image'))
+      for (const { temp } of pending) {
+        if (!existsSync(temp) || (await stat(temp)).size === 0) throw new ApiError('OUTPUT_MISSING', '下载完成但输出文件不存在或为空', 'fatal', 500)
+      }
+      for (const { temp, output } of pending) {
+        await rename(temp, output)
+        outputTemps.splice(outputTemps.indexOf(temp), 1)
+      }
       const saved = this.#repo.get(id) ?? task
-      this.save(saved, { status: 'success', phase: 'done', fileName, error: '' })
+      this.save(saved, { status: 'success', phase: 'done', fileName: files[0]?.fileName ?? '', files, error: '' })
     } catch (error) {
       const current = this.#repo.get(id) ?? task
       if (controller.signal.aborted) this.save(current, { status: 'stopped', error: '任务已取消' })
       else this.save(current, { status: 'fail', error: error instanceof Error ? error.message : String(error) })
     } finally {
       await rm(workDir, { recursive: true, force: true })
-      if (outputTemp !== undefined) await rm(outputTemp, { force: true })
+      for (const temp of outputTemps) await rm(temp, { force: true })
     }
   }
 
@@ -408,7 +450,10 @@ export class TaskService {
 
   private pickGenericAudio(streams: readonly MediaStream[], task: TaskSnapshot): MediaStream | undefined {
     const available = streams.filter((stream) => stream.available)
-    if (task.mode === 'audio' && task.streamId !== undefined) return available.find((stream) => stream.id === task.streamId && stream.kind === 'audio')
+    if (task.mode === 'audio' && task.streamId !== undefined) {
+      const selected = available.find((stream) => stream.id === task.streamId && stream.kind === 'audio')
+      if (selected !== undefined) return selected
+    }
     return available.find((stream) => stream.kind === 'audio')
   }
 
@@ -417,8 +462,8 @@ export class TaskService {
     target: string,
     task: TaskSnapshot,
     controller: AbortController,
-    phase: 'video' | 'audio',
-  ): Promise<void> {
+    phase: 'video' | 'audio' | 'image',
+  ): Promise<string> {
     const formatHeaders = 'httpHeaders' in stream ? stream.httpHeaders ?? {} : {}
     const headers = new Headers({ 'User-Agent': DEFAULT_USER_AGENT })
     for (const [name, value] of Object.entries(formatHeaders)) headers.set(name, value)
@@ -444,6 +489,11 @@ export class TaskService {
       const detail = lastError instanceof Error ? lastError.message : '未知错误'
       throw new ApiError('STREAM_FETCH_FAILED', `取流失败（${detail}）`, 'network', 502)
     }
+    const contentType = (response.headers.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? ''
+    if (stream.kind === 'image' && contentType !== '' && !['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'application/octet-stream'].includes(contentType)) {
+      await response.body.cancel().catch(() => {})
+      throw new ApiError('INVALID_IMAGE_RESPONSE', '图片资源返回了非图片内容', 'network', 502)
+    }
     const total = Number(response.headers.get('content-length') ?? 0)
     const phaseBaseBytes = this.#repo.get(task.id)?.totalBytes ?? 0
     const file = createWriteStream(target)
@@ -467,6 +517,7 @@ export class TaskService {
       await once(file, 'close').catch(() => {})
       reader.releaseLock()
     }
+    return contentType
   }
 
   private async copyFile(from: string, to: string): Promise<void> {

@@ -14,17 +14,18 @@ export const CODEC_ID: Readonly<Record<Codec, number>> = {
  * 下载模式。
  *
  * dash 模式下视频流与音频流本身就是两条独立的流，所以"支持音频下载"与"支持视频下载"
- * 是同一套取流逻辑的三种编排（详见 docs/tech-design.md §2）：
- * - `video+audio` 两条都取，用 ffmpeg 合并为 mp4
- * - `video`       只取视频流，remux 为 mp4
- * - `audio`       只取音频流，直接落盘为 m4a（零转码）或转码为 mp3
+ * 是同一套取流逻辑的三种影音编排（详见 docs/tech-design.md §2）：
+ * - `video+audio` 一条任务输出无音轨 MP4 和 M4A 两个文件；合并源只下载一次再分轨
+ * - `video`       输出无音轨 MP4
+ * - `audio`       输出 M4A（音轨复制封装）或转码为 MP3；合并源需先提取音轨
+ * - `image`       小红书图文选中的单张图片直接下载，无需 FFmpeg（不能设为默认输出）
  */
-export const downloadModeSchema = z.enum(['video+audio', 'video', 'audio'])
+export const downloadModeSchema = z.enum(['video+audio', 'video', 'audio', 'image'])
 export type DownloadMode = z.infer<typeof downloadModeSchema>
 
 /**
  * 音频容器。
- * `m4a`：dash 音频流本身即 AAC-in-MP4，改名即可播放 —— **不调用 ffmpeg**，最快无损；
+ * `m4a`：AAC 音轨通过 ffmpeg 无损封装为 M4A，不依赖 AAC 编码器；
  * `mp3`：需要 ffmpeg 且编译了 libmp3lame。
  */
 export const audioContainerSchema = z.enum(['m4a', 'mp3'])
@@ -45,7 +46,7 @@ export const appConfigSchema = z.object({
   /** yt-dlp executable; empty means search PATH */
   ytDlpPath: z.string().default(''),
   /** 新建任务时的默认下载模式（页面上仍可临时切换） */
-  defaultDownloadMode: downloadModeSchema.default('video+audio'),
+  defaultDownloadMode: downloadModeSchema.exclude(['image']).default('video+audio'),
   /** 音频容器：仅 mode=audio 时生效 */
   audioContainer: audioContainerSchema.default('mp3'),
   /** mp3 转码码率（kbps）；m4a 路径忽略此值 */
@@ -63,7 +64,7 @@ export const appConfigSchema = z.object({
   /** HTTP 服务监听端口 */
   serverPort: z.number().int().min(1).max(65535).default(9070),
   /** 监听地址。安全底线：只监听本机回环，不要改成 0.0.0.0 */
-  bindHost: z.string().min(1).default('127.0.0.1'),
+  bindHost: z.enum(['127.0.0.1', 'localhost', '::1']).default('127.0.0.1'),
   /** 本地访问令牌；非空时 /api/* 需带 Authorization: Bearer <token> */
   accessToken: z.string().default(''),
 })

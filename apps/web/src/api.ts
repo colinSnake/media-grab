@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import type {
   AppConfig,
   AccountListResponse,
@@ -59,26 +60,60 @@ function readErrorMessage(data: unknown): string | undefined {
 export function apiBase(): string {
   const configured = (globalThis as { __MEDIAGRAB_CORE_URL__?: unknown }).__MEDIAGRAB_CORE_URL__
   if (typeof configured === 'string' && configured.trim() !== '') return configured.replace(/\/$/, '')
+  // Tauri dev serves the WebView from Vite. Use its same-origin proxy instead
+  // of making a cross-origin request to the local core from the dev window.
+  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.port === '9067') {
+    return ''
+  }
   if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || !['http:', 'https:'].includes(window.location.protocol))) {
     return 'http://127.0.0.1:9070'
   }
   return ''
 }
 
-export function apiUrl(path: string): string {
-  return `${apiBase()}${path}`
+let coreTokenPromise: Promise<string> | undefined
+let verifiedCoreToken = ''
+
+export async function getCoreToken(): Promise<string> {
+  if (apiBase() === '' || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return ''
+  coreTokenPromise ??= invoke<string>('get_core_access').then((token) => {
+    verifiedCoreToken = token
+    return token
+  }).catch((error: unknown) => {
+    coreTokenPromise = undefined
+    throw new Error(typeof error === 'string' ? error : '无法验证桌面核心身份')
+  })
+  return coreTokenPromise
 }
 
-export function getTaskEventsUrl(): string {
+export function apiUrl(path: string): string {
+  const source = `${apiBase()}${path}`
+  if (verifiedCoreToken && (path.startsWith('/api/cover?') || path.startsWith('/api/media/stream?'))) {
+    return `${source}&media_token=${verifiedCoreToken}`
+  }
+  return source
+}
+
+export async function getTaskEventConnection(): Promise<{ url: string; protocols?: string[] }> {
+  const token = await getCoreToken()
   const url = new URL(`${apiBase()}/api/ws`, window.location.href)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString()
+  return { url: url.toString(), protocols: token ? [`mg-${token}`] : undefined }
+}
+
+export async function fetchWithCoreAuth(path: string): Promise<Response> {
+  const token = await getCoreToken()
+  const headers = new Headers()
+  if (token) headers.set('X-Mediagrab-Token', token)
+  return fetch(apiUrl(path), { headers })
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const token = await getCoreToken()
   let response: Response
   try {
     const headers = new Headers(init?.headers)
+    if (token) headers.set('X-Mediagrab-Token', token)
     if (init?.body === undefined) headers.delete('Content-Type')
     else if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     response = await fetch(apiUrl(url), { ...init, headers })

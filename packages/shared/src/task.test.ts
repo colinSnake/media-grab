@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { taskDedupeKey, type TaskSnapshot } from './task.js'
+import { taskDedupeKey, taskSnapshotSchema, type TaskSnapshot } from './task.js'
 
 function task(overrides: Partial<TaskSnapshot> = {}): Pick<TaskSnapshot, 'platform' | 'sourceId' | 'input' | 'bvid' | 'cid' | 'qn' | 'streamId' | 'mode' | 'audioContainer'> {
   return {
@@ -34,4 +34,13 @@ describe('taskDedupeKey', () => {
     expect(taskDedupeKey(task({ platform: 'douyin', sourceId: 'item-1', qn: undefined, streamId: 'video-1' })))
       .not.toBe(taskDedupeKey(task({ platform: 'douyin', sourceId: 'item-1', qn: undefined, streamId: 'video-2' })))
   })
+})
+
+it('reads existing single-file task snapshots without a files field', () => {
+  const legacy = {
+    id: 'old', platform: 'xiaohongshu', input: 'https://www.xiaohongshu.com/explore/123', sourceId: '123',
+    bvid: '', cid: 0, title: 'clip', status: 'success', phase: 'done', mode: 'video+audio',
+    totalBytes: 1024, downloadedBytes: 1024, speedBps: 0, fileName: 'clip.mp4', error: '', updatedAt: 1,
+  }
+  expect(taskSnapshotSchema.parse(legacy)).toMatchObject({ fileName: 'clip.mp4', files: [] })
 })

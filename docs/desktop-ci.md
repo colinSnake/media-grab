@@ -13,7 +13,9 @@ gh workflow run desktop-build.yml --ref main
 gh run list --workflow desktop-build.yml
 ```
 
-推送 `v*` 版本标签也会触发构建。标签必须与根目录 `package.json`、`apps/desktop/src-tauri/tauri.conf.json` 和 `apps/desktop/src-tauri/Cargo.toml` 的版本一致。例如，三个文件都是 `0.1.0` 时使用 `v0.1.0`。
+自动构建只在**推送分支时，推送后的最新一条提交信息包含 `build-ci-cd`** 才运行。示例：`git commit -m "build-ci-cd: 验证桌面安装包"`，再推送该分支。该标记只检查最新提交；一次推送多个提交时，请把标记放在最后一个。普通提交的工作流记录会显示为 skipped，不分配测试或打包 runner，也不会取消进行中的正式构建；这是 GitHub Actions 原生 `push` 不支持直接按提交信息过滤的限制。需要完全不产生普通推送的工作流记录时，只能采用纯手动触发等其他机制。
+
+推送 `v*` 标签**不再自动构建**；仍可选择目标 ref 手动运行。若手动选择版本标签，标签必须与根目录 `package.json`、`apps/desktop/src-tauri/tauri.conf.json` 和 `apps/desktop/src-tauri/Cargo.toml` 的版本一致。例如，三个文件都是 `0.1.0` 时使用 `v0.1.0`。
 
 工作流只生成并上传 Actions artifacts，不创建 GitHub Release，也不公开发布安装包。无需配置个人访问令牌或额外 Secrets；工作流的 `GITHUB_TOKEN` 只需要读取仓库权限。
 
@@ -38,8 +40,9 @@ gh run list --workflow desktop-build.yml
 2. 各 runner 安装固定版本的 Node.js 和 pnpm，使用 lockfile 安装依赖。
 3. 下载 `scripts/ci-media-tools.json` 中固定版本、SHA-256 的 yt-dlp、许可证，以及 FFmpeg/LAME 源码。
 4. 使用 `scripts/build-release-ffmpeg.sh` 在当前系统编译精简 FFmpeg，保留视频/音频封装和 MP3 导出能力；不启用 GPL/nonfree 组件。
-5. 准备随包 Node 服务、前端和媒体工具，再通过隔离目录中的实际服务启动与 API 请求检查资源是否完整。
-6. Tauri 构建原生安装包，并上传安装包、校验和与工具源码。
+5. 准备随包 Node 服务、前端和媒体工具，再通过隔离目录中的实际服务启动与 API 请求检查资源是否完整。 pnpm 10 部署服务端依赖时显式使用 `deploy --legacy`，避免默认的 injected workspace packages 检查阻止独立 core 构建。
+6. Tauri 构建原生安装包；Windows runner 静默安装 NSIS，Linux runner 安装 deb 并以 AppImage 的 extract-and-run 模式启动。烟测真实 GUI 应用能拉起本地 core，核对独立数据目录、随包 Node 与受保护的 loopback API（FFmpeg/yt-dlp 在安装前的隔离运行时步骤验证）；烟测结束由测试程序强制回收进程，不能替代应用正常退出生命周期验收；失败则本次构建失败。
+7. 上传安装包、校验和与工具源码。
 
 媒体工具缓存按 runner、架构及准备脚本内容隔离。命中缓存后仍会校验输入哈希、实际工具版本和运行时；修改工具版本或构建脚本会自动更换缓存。首次运行需要从源码编译 FFmpeg，通常会明显慢于缓存命中的后续运行，实际耗时取决于 runner 和下载速度。
 
@@ -56,3 +59,5 @@ gh run list --workflow desktop-build.yml
 目前生成未经发行证书签名、未经 Apple 公证的测试安装包。macOS 或 Windows 可能显示系统安全提示；正式公开发行需要另外接入证书签名和公证。
 
 当前包含 Windows/Linux x64 和 macOS 两种架构，不包含 Windows/Linux ARM64。Linux 产物以 Ubuntu 22.04 的构建环境为基线，仍需在计划支持的发行版上验证安装和运行。各系统的真实下载与安装验收需要在对应系统完成。
+
+> 安装后烟测仅证明相应 CI runner 上的打包程序可以启动，不等同于 Windows/Linux 多发行版、多桌面环境的人工验收；AppImage 烟测使用 extract-and-run，不覆盖 FUSE 挂载路径。首次启用需要实际运行 workflow 并检查失败日志，不应仅凭脚本合入标记安装验收完成。

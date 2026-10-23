@@ -1,11 +1,12 @@
 import { appConfigSchema, defaultAppConfig } from '@mediagrab/shared'
 import { buildApp } from './app.js'
+import { isLoopbackHost } from './lib/local-access.js'
 import { resolveWebDist } from './paths.js'
 import { createServices, initializeBili } from './services.js'
 
 const defaults = defaultAppConfig()
 
-/** PORT 环境变量优先（便于同机多实例与自动化验证）；库中已落盘的设置优先级更高 */
+/** PORT 可覆盖无持久化设置的启动默认值；发行版桌面端始终固定 9070。 */
 function envPort(fallback: number): number {
   const raw = process.env.PORT
   if (raw === undefined || raw.trim() === '') return fallback
@@ -20,22 +21,31 @@ const bootstrapConfig = appConfigSchema.parse({
   bindHost: envBindHost !== undefined && envBindHost.trim() !== '' ? envBindHost : defaults.bindHost,
 })
 
+const desktopCore = process.env.MEDIAGRAB_DESKTOP_CORE === '1'
+const coreToken = desktopCore ? process.env.MEDIAGRAB_CORE_TOKEN : undefined
+// Never pass the desktop session secret to yt-dlp, FFmpeg, or user-configured
+// executable paths launched by the core later in this process.
+delete process.env.MEDIAGRAB_CORE_TOKEN
 // M1：SQLite 落盘（settings / device / wbi_keys），配置与设备指纹跨重启保持
 const services = createServices({ config: bootstrapConfig })
+if (desktopCore && !/^[a-f0-9]{64}$/.test(coreToken ?? '')) {
+  throw new Error('桌面核心缺少有效的每次启动访问凭据')
+}
+// Packaged WebView uses a fixed endpoint; normalize legacy persisted settings so
+// both the config API and the actual listener agree after a desktop restart.
+if (desktopCore && (services.config.get().serverPort !== 9070 || services.config.get().bindHost !== '127.0.0.1')) {
+  services.config.patch({ serverPort: 9070, bindHost: '127.0.0.1' })
+}
 const config = services.config.get()
+if (!isLoopbackHost(config.bindHost)) {
+  throw new Error('拒绝在非回环地址启动本地核心')
+}
 const webDist = resolveWebDist()
-const app = await buildApp({ config, webDist, services })
+const app = await buildApp({ config, webDist, services, desktopCore, coreToken })
 // 容器由本模块持有，退出时关闭数据库
 app.addHook('onClose', async () => {
   services.close()
 })
-
-const LOOPBACK = ['127.0.0.1', 'localhost', '::1']
-if (!LOOPBACK.includes(config.bindHost)) {
-  app.log.warn(
-    `bindHost=${config.bindHost} 不是本机回环地址。本服务可能持有账号凭据，请勿暴露到局域网或公网。`,
-  )
-}
 
 app.log.info(
   {

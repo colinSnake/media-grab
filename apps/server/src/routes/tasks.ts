@@ -18,12 +18,12 @@ function idFromParams(params: unknown): string {
   return id
 }
 
-function taskFilePath(task: { fileName: string }, savePath: string): string | undefined {
-  if (task.fileName === '') return undefined
+function taskFilePath(fileName: string, savePath: string): string | undefined {
+  if (fileName === '') return undefined
   const candidates = [
-    path.join(resolveDownloadDir(savePath), task.fileName),
+    path.join(resolveDownloadDir(savePath), fileName),
     // 兼容修复前以 apps/server 为 cwd 生成的文件。
-    path.resolve(process.cwd(), savePath, task.fileName),
+    path.resolve(process.cwd(), savePath, fileName),
   ]
   return candidates.find((candidate) => existsSync(candidate))
 }
@@ -34,10 +34,13 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesDeps> = async (app, opts) 
   app.get('/api/tasks/:id/file', async (req, reply) => {
     const task = opts.services.downloads.get(idFromParams(req.params))
     if (task === null) throw new ApiError('TASK_NOT_FOUND', '任务不存在', 'notFound', 404)
-    if (task.status !== 'success' || task.fileName === '') throw new ApiError('FILE_NOT_READY', '文件尚未准备好', 'notFound', 404)
-    const filePath = taskFilePath(task, opts.services.config.get().savePath)
+    const kind = (req.query as { kind?: string }).kind
+    if (kind !== undefined && !['video', 'audio', 'image'].includes(kind)) throw new ApiError('INVALID_FILE_KIND', '文件类型不正确', 'invalid', 400)
+    const fileName = kind === undefined ? task.fileName : task.files.find((file) => file.kind === kind)?.fileName ?? ''
+    if (task.status !== 'success' || fileName === '') throw new ApiError('FILE_NOT_READY', '文件尚未准备好', 'notFound', 404)
+    const filePath = taskFilePath(fileName, opts.services.config.get().savePath)
     if (filePath === undefined) throw new ApiError('FILE_NOT_FOUND', '下载文件不存在，请重新下载', 'notFound', 404)
-    const encodedName = encodeURIComponent(task.fileName)
+    const encodedName = encodeURIComponent(fileName)
     return reply
       .header('Content-Disposition', `attachment; filename="download"; filename*=UTF-8''${encodedName}`)
       .type('application/octet-stream')

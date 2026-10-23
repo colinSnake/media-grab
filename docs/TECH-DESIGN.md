@@ -116,7 +116,7 @@ Web 与桌面 UI 使用同一套本地 HTTP API 和 shared schema。Tauri comman
 
 ## 7. 数据模型
 
-SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下载队列和历史记录不是两份任务数据：`tasks` 中的快照按 `status` 区分进行中任务和终态任务，媒体文件不进数据库。具体规则见 [项目结构与开发规范](./project-structure-and-conventions.md)。
+SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下载队列和历史记录不是两份任务数据：`tasks` 中的快照记录服务端任务状态，前端本地记录用户下载文件的结果，媒体文件不进数据库。具体规则见 [项目结构与开发规范](./project-structure-and-conventions.md)。
 
 数据库位置必须使用系统应用数据目录：macOS `Application Support`、Windows `AppData/Local`、Linux `XDG_DATA_HOME`，不再默认写入仓库目录。
 
@@ -147,3 +147,19 @@ SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下�
 2. 桌面发行包提供匹配目标平台的 Node 运行时及服务端生产依赖；不要求用户自行安装 Node。
 3. Tauri/Rust 负责宿主生命周期和原生系统操作，不复制解析、任务、平台 adapter 或数据库业务逻辑。
 4. 每接入一个平台，必须提供 URL 识别、详情、资源选项、权限错误和最小 fixture 测试。
+
+## 本地 API 访问边界（2026-10-23）
+
+服务端配置只允许 loopback 监听；旧版持久化的非 loopback 地址在加载时回退到默认值。发行版桌面核心固定使用 `127.0.0.1:9070`，避免持久化端口偏移导致 WebView 连接错误。HTTP/WebSocket 入口拒绝非本地主机名的 Host，并拒绝非桌面 WebView、开发 Vite 或核心同源网页的 Origin；跨源读取另受 CORS 限制。无 Origin 的本机客户端可继续使用 CLI API。
+
+**剩余边界**：Host/Origin 可被本机原生进程伪造，不是本机进程间认证；固定端口也可能被别的进程抢占。发行安装验收前需完成桌面壳与核心的握手/鉴权，再验证端口抢占及 WebSocket 行为。
+
+## Extractor 并发与取消（2026-10-23）
+
+每个平台的 yt-dlp adapter 持有独立的有界队列：同平台至多一个解析子进程，最多 16 个待处理调用；抖音/小红书两次启动至少间隔 1.5 秒，YouTube 至少间隔 0.5 秒。这是客户端保守默认值，**不是平台官方限额**。排队超出上限返回可重试的 429 `EXTRACTOR_BUSY`；上游 412/429 映射为 429 `PLATFORM_RATE_LIMITED`。下载任务取消信号会中断排队等待和运行中的 yt-dlp 子进程；临时 Cookie 文件始终在 finally 中清理。其他站点的限速阈值和权限响应仍需真实样本验收。
+
+## 桌面核心启动认证（2026-10-23）
+
+发行版桌面壳每次启动用操作系统随机源生成 256 位会话凭据，只通过子进程环境变量交给 Node core。Rust 命令用随机 128 位 nonce 请求健康接口，校验由 core 基于会话凭据生成的 HMAC-SHA256 后才允许 WebView 取得凭据；端口被未知进程占用时不得将凭据发给对方。`/api/health` 保留只读无凭据访问供启动检查；其余 `/api/*`（含 WebSocket）要求 HTTP 头或 WebSocket 子协议认证，封面/视频预览的 GET 子资源通过限定路径的查询参数认证，日志记录时移除完整查询串。开发模式继续使用 Vite 代理，不生成发行版凭据。
+
+发行包的端口抢占、通知权限及图文图片实际访问仍需真机/CI runner 验收。会话凭据降低任意本机服务假冒风险，但不承诺抵御能读取同用户进程环境或 WebView 内存的恶意程序。

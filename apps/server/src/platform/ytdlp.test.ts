@@ -107,6 +107,32 @@ describe('YtDlpAdapter', () => {
     expect(result.capabilities).toMatchObject({ video: true, audio: true, download: true })
   })
 
+  it('小红书纯图文将 CDN thumbnails 转为可下载图片选项，不把视频封面当成图片', async () => {
+    let extractorArgs: readonly string[] = []
+    const adapter = new YtDlpAdapter({
+      platform: 'xiaohongshu',
+      exec: async (_file, args) => {
+        extractorArgs = args
+        return { stdout: JSON.stringify({
+          id: 'photo-note', title: '图片笔记', formats: [],
+          thumbnails: [
+            { url: 'http://sns-webpic-qc.xhscdn.com/1/a.webp', width: 900, height: 1200 },
+            { url: 'https://sns-webpic-qc.xhscdn.com/2/b.jpg', width: 900, height: 1200 },
+            { url: 'https://example.com/untrusted.jpg' },
+          ],
+        }), stderr: '' }
+      },
+    })
+    const result = await adapter.parse('https://www.xiaohongshu.com/explore/photo-note')
+    expect(extractorArgs).toContain('--ignore-no-formats-error')
+    expect(result.streams).toMatchObject([
+      { id: 'image:1', kind: 'image', url: 'https://sns-webpic-qc.xhscdn.com/1/a.webp', label: '图片 1' },
+      { id: 'image:2', kind: 'image', url: 'https://sns-webpic-qc.xhscdn.com/2/b.jpg', label: '图片 2' },
+    ])
+    expect(result.itemCount).toBe(2)
+    expect(result.capabilities).toMatchObject({ video: false, image: true, download: true })
+  })
+
   it('thumbnail 缺失时从最高分辨率 thumbnails 兜底取封面', async () => {
     const adapter = new YtDlpAdapter({
       platform: 'xiaohongshu',
@@ -134,6 +160,54 @@ describe('YtDlpAdapter', () => {
       exec: async (_file, _args, _options) => { throw new Error('spawn yt-dlp ENOENT') },
     })
     await expect(adapter.parse('https://www.xiaohongshu.com/explore/example')).rejects.toThrow('未找到 yt-dlp')
+  })
+
+  it('已配置 Cookie 仍遇到平台无详情时不误报为未配置', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'douyin',
+      cookieProvider: () => '# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tFALSE\t0\tsessionid\tprivate\n',
+      exec: async () => { throw new Error('ERROR: Fresh cookies (not necessarily logged in) are needed') },
+    })
+    await expect(adapter.parse('https://www.douyin.com/video/123')).rejects.toMatchObject({
+      code: 'MEDIA_COOKIE_REQUIRED',
+      httpStatus: 403,
+      message: expect.stringContaining('Cookie 已配置，但平台仍未返回视频详情'),
+    })
+  })
+
+  it('没有 Cookie 时仍提示导入 Cookie', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'douyin',
+      exec: async () => { throw new Error('ERROR: Fresh cookies (not necessarily logged in) are needed') },
+    })
+    await expect(adapter.parse('https://www.douyin.com/video/123')).rejects.toMatchObject({
+      code: 'MEDIA_COOKIE_REQUIRED',
+      message: expect.stringContaining('请在平台设置中粘贴有效 Cookie'),
+    })
+  })
+
+  it('把 extractor 限流映射为可重试风险错误', async () => {
+    const adapter = new YtDlpAdapter({
+      platform: 'xiaohongshu',
+      exec: async () => { throw new Error('ERROR: HTTP Error 429: Too Many Requests') },
+    })
+    await expect(adapter.parse('https://www.xiaohongshu.com/explore/123')).rejects.toMatchObject({
+      code: 'PLATFORM_RATE_LIMITED', kind: 'risk', httpStatus: 429, retryable: true,
+    })
+  })
+
+  it('取消运行中的 extractor 时及时终止且不报为网络失败', async () => {
+    const controller = new AbortController()
+    const adapter = new YtDlpAdapter({
+      platform: 'xiaohongshu',
+      exec: async (_file, _args, options) => new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(new Error('The operation was aborted')), { once: true })
+      }),
+    })
+    const result = adapter.parse('https://www.xiaohongshu.com/explore/123', { signal: controller.signal })
+    await Promise.resolve()
+    controller.abort()
+    await expect(result).rejects.toMatchObject({ code: 'TASK_CANCELLED' })
   })
 
   it('把 yt-dlp 的 Unsupported URL 映射为不可重试的输入错误', async () => {

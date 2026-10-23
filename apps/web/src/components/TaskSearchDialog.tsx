@@ -1,17 +1,18 @@
 import { FileVideo2, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { platformLabel, qualityMeta, type TaskSnapshot } from '@mediagrab/shared'
-import { TaskStatusIndicator } from './TaskRow'
+import { TaskStatusIndicator, type DownloadResult } from './TaskRow'
 import { PlatformLogo } from './PlatformLogo'
 
 interface TaskSearchDialogProps {
   open: boolean
   tasks: TaskSnapshot[]
+  downloadResults: Record<string, DownloadResult>
   onClose: () => void
   onSelect: (task: TaskSnapshot) => void
 }
 
-export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchDialogProps) {
+export function TaskSearchDialog({ open, tasks, downloadResults, onClose, onSelect }: TaskSearchDialogProps) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -57,11 +58,15 @@ export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchD
               <span className="task-title">
                 <strong>{task.title || task.bvid || task.input}</strong>
                 <span className="task-meta">
-                  <span className={`task-mode-tag ${task.mode}`}>{task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</span>
-                  {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag">{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
+                  <span className={`task-mode-tag ${task.mode}`} title={task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}>{task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</span>
+                  {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag" title={task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}>{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
                 </span>
               </span>
-              <TaskStatusIndicator status={task.status} />
+              {(task.status !== 'success' || downloadResults[task.id] !== undefined) &&
+                <TaskStatusIndicator
+                  status={task.status === 'success' ? downloadResults[task.id]?.status ?? task.status : task.status}
+                  error={task.status === 'success' ? downloadResults[task.id]?.error : task.error}
+                />}
             </button>
           ))}
         </div>

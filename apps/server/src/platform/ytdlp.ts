@@ -11,13 +11,14 @@ import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
 import { findRepoRoot } from '../paths.js'
 import { resolveYtDlpExecutable } from '../media-tools.js'
+import { ExtractorGate } from './extractor-gate.js'
 
 const execFileAsync = promisify(execFile)
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 type ExecLike = (
   file: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number },
+  options: { timeout: number; maxBuffer: number; signal?: AbortSignal },
 ) => Promise<{ stdout: string; stderr: string }>
 
 interface YtDlpFormat {
@@ -140,6 +141,7 @@ export interface YtDlpAdapterOptions {
   cookieProvider?: () => string | undefined
   logger?: Logger
   exec?: ExecLike
+  gate?: ExtractorGate
 }
 
 export class YtDlpAdapter {
@@ -149,6 +151,7 @@ export class YtDlpAdapter {
   #cookieProvider: () => string | undefined
   #logger: Logger
   #exec: ExecLike
+  #gate: ExtractorGate
 
   constructor(options: YtDlpAdapterOptions) {
     this.platform = options.platform
@@ -157,6 +160,7 @@ export class YtDlpAdapter {
     this.#cookieProvider = options.cookieProvider ?? (() => undefined)
     this.#logger = options.logger ?? silentLogger
     this.#exec = options.exec ?? (execFileAsync as unknown as ExecLike)
+    this.#gate = options.gate ?? new ExtractorGate(this.platform === 'youtube' ? 500 : 1_500)
   }
 
   setExecutable(candidate = ''): void {
@@ -168,7 +172,11 @@ export class YtDlpAdapter {
     this.#cookieProvider = provider
   }
 
-  private async run(args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
+  private async run(args: readonly string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+    return this.#gate.run(() => this.runOnce(args, signal), signal)
+  }
+
+  private async runOnce(args: readonly string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
     let cookieDir: string | undefined
     let commandArgs = [...args]
     try {
@@ -181,25 +189,27 @@ export class YtDlpAdapter {
         await chmod(cookiePath, 0o600)
         commandArgs = ['--cookies', cookiePath, ...args]
       }
-      return await this.#exec(this.#executable, commandArgs, { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
+      return await this.#exec(this.#executable, commandArgs, { timeout: 45_000, maxBuffer: 16 * 1024 * 1024, signal })
     } catch (error) {
       if (!this.#allowPythonFallback || !/not found|enoent|cannot find/i.test(error instanceof Error ? error.message : String(error))) {
         throw error
       }
-      return this.#exec('python3', ['-m', 'yt_dlp', ...commandArgs], { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 })
+      return this.#exec('python3', ['-m', 'yt_dlp', ...commandArgs], { timeout: 45_000, maxBuffer: 16 * 1024 * 1024, signal })
     } finally {
       if (cookieDir !== undefined) await rm(cookieDir, { recursive: true, force: true })
     }
   }
 
-  async parse(input: string): Promise<MediaParseResult> {
+  async parse(input: string, options?: { signal?: AbortSignal }): Promise<MediaParseResult> {
     let stdout: string
     try {
-      const args = ['--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download']
+      const args = ['--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download', '--ignore-no-formats-error']
       args.push(input)
-      const result = await this.run(args)
+      const result = await this.run(args, options?.signal)
       stdout = result.stdout
     } catch (error) {
+      if (error instanceof ApiError) throw error
+      if (options?.signal?.aborted) throw new ApiError('TASK_CANCELLED', '任务已取消', 'invalid', 400)
       this.#logger.warn({ platform: this.platform, error: error instanceof Error ? error.message : String(error) }, 'yt-dlp 解析失败')
       const message = error instanceof Error ? error.message : String(error)
       if (/not found|enoent|cannot find/i.test(message)) {
@@ -208,6 +218,9 @@ export class YtDlpAdapter {
       if (/unsupported url|no suitable extractor/i.test(message)) {
         throw new ApiError('UNSUPPORTED_MEDIA_URL', '该链接不是当前平台支持的媒体地址，或短链已经失效。', 'invalid', 422)
       }
+      if (/HTTP Error (?:412|429)\b|too many requests|rate.?limit(?:ed|ing)?/i.test(message)) {
+        throw new ApiError('PLATFORM_RATE_LIMITED', `${platformLabel[this.platform]}请求受限，请稍后重试。`, 'risk', 429)
+      }
       if (/private video|login required|video unavailable|not available in your country/i.test(message)) {
         throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
       }
@@ -215,6 +228,13 @@ export class YtDlpAdapter {
         const label = platformLabel[this.platform]
         if (platformDefinition(this.platform)?.cookieSupport === 'unsupported') {
           throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}要求登录或验证身份；当前版本尚未支持导入该平台的 Cookie。`, 'permission', 403)
+        }
+        // yt-dlp also reports "Fresh cookies" when Douyin returns no detail JSON.
+        // With a cookie already provided, do not claim it is definitely missing or expired.
+        let configured = false
+        try { configured = Boolean(this.#cookieProvider()) } catch { /* preserve the extractor error */ }
+        if (configured) {
+          throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label} Cookie 已配置，但平台仍未返回视频详情。请确认该视频在同一浏览器中可播放；也可能是 Cookie 失效、内容受限或平台风控。`, 'permission', 403)
         }
         throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}需要新鲜的 Cookie。请在平台设置中粘贴有效 Cookie后重试。`, 'permission', 403)
       }
@@ -239,8 +259,30 @@ export class YtDlpAdapter {
         if (left.combined !== right.combined) return left.combined ? -1 : 1
         return (right.height ?? 0) - (left.height ?? 0) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
       })
+    // yt-dlp exposes photo-only Xiaohongshu notes as thumbnails and no formats.
+    // Never turn a video cover into a downloadable image resource.
+    if (this.platform === 'xiaohongshu' && streams.length === 0) {
+      const unique = new Set<string>()
+      for (const thumbnail of info.thumbnails ?? []) {
+        if (!isPresent(thumbnail.url)) continue
+        let url: URL
+        try { url = new URL(thumbnail.url) } catch { continue }
+        if (!['http:', 'https:'].includes(url.protocol) || !/(^|\.)xhscdn\.com$/.test(url.hostname)) continue
+        url.protocol = 'https:'
+        if (unique.has(url.href)) continue
+        unique.add(url.href)
+        streams.push({
+          id: `image:${streams.length + 1}`, kind: 'image', combined: false,
+          label: `图片 ${streams.length + 1}`, url: url.href, backupUrls: [],
+          width: thumbnail.width, height: thumbnail.height,
+          httpHeaders: { Referer: 'https://www.xiaohongshu.com/' },
+          available: true, reason: '',
+        })
+      }
+    }
     const video = streams.some((stream) => stream.kind === 'video')
     const audio = streams.some((stream) => stream.kind === 'audio' || stream.combined)
+    const image = streams.some((stream) => stream.kind === 'image')
     return {
       platform: this.platform,
       input,
@@ -250,8 +292,8 @@ export class YtDlpAdapter {
       cover: coverFromInfo(info),
       durationSec: Math.max(0, Math.round(info.duration ?? 0)),
       streams,
-      itemCount: 1,
-      capabilities: { video, audio, image: false, download: streams.length > 0 },
+      itemCount: image ? streams.length : 1,
+      capabilities: { video, audio, image, download: streams.length > 0 },
     }
   }
 }

@@ -61,7 +61,7 @@ The Tauri configuration currently requests all bundle formats supported on the b
 
 The exact set depends on the host and installed packaging tools. Building on one OS does not automatically produce native installers for all three. Cross-compilation has extra constraints; use a matching OS or CI runner for predictable release artifacts.
 
-For hosted builds, open **Actions → Desktop builds → Run workflow**. The workflow builds macOS arm64/x64, Windows x64, and Linux x64 installers, including the Node runtime, FFmpeg, and yt-dlp. It uploads build artifacts without publishing a GitHub Release. See [Desktop CI](./docs/desktop-ci.md) for triggers, downloads, and tool version updates.
+For hosted builds, add `build-ci-cd` to the latest pushed commit message or open **Actions → Desktop builds → Run workflow**. The workflow builds macOS arm64/x64, Windows x64, and Linux x64 installers, including the Node runtime, FFmpeg, and yt-dlp. It uploads build artifacts without publishing a GitHub Release. See [Desktop CI](./docs/desktop-ci.md) for triggers, downloads, and tool version updates.
 
 ### Build prerequisites
 

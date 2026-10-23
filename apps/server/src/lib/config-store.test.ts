@@ -67,6 +67,15 @@ describe('ConfigStore.load', () => {
     expect(store.get().defaultDownloadMode).toBe(defaultAppConfig().defaultDownloadMode)
   })
 
+  it('历史配置尝试监听局域网时回退到本地地址，其它设置仍恢复', () => {
+    const { repo } = setup()
+    repo.set('bindHost', JSON.stringify('0.0.0.0'))
+    repo.set('savePath', JSON.stringify('/tmp/kept'))
+    const store = ConfigStore.load(repo, defaultAppConfig())
+    expect(store.get().bindHost).toBe('127.0.0.1')
+    expect(store.get().savePath).toBe('/tmp/kept')
+  })
+
   it('库里的未知（历史遗留）键既不影响配置，也不计入 persistedKeys', () => {
     const { repo } = setup()
     repo.set('legacyRemovedField', JSON.stringify(1))

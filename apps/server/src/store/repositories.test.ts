@@ -279,7 +279,7 @@ describe('TaskRepository', () => {
     const first: TaskSnapshot = {
       id: 'task-a', platform: 'bilibili', input: 'BV1GJ411x7h7', sourceId: 'BV1GJ411x7h7', bvid: 'BV1GJ411x7h7', cid: 1,
       title: 'A', status: 'waiting', phase: 'pending', mode: 'video+audio', qn: 32,
-      totalBytes: 0, downloadedBytes: 0, speedBps: 0, fileName: '', error: '', updatedAt: 10,
+      totalBytes: 0, downloadedBytes: 0, speedBps: 0, fileName: '', files: [], error: '', updatedAt: 10,
     }
     const second = { ...first, id: 'task-b', title: 'B', updatedAt: 20 }
 

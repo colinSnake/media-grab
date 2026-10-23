@@ -27,6 +27,8 @@ describe('配置', () => {
 
   it('拒绝非法端口与非法下载模式', () => {
     expect(() => appConfigSchema.parse({ serverPort: 70000 })).toThrow()
+    expect(() => appConfigSchema.parse({ bindHost: '0.0.0.0' })).toThrow()
+    expect(appConfigSchema.parse({ bindHost: '::1' }).bindHost).toBe('::1')
     expect(() => appConfigSchema.parse({ defaultDownloadMode: 'both' })).toThrow()
   })
 
