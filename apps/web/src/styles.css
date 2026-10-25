@@ -412,7 +412,6 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .task-indicator.fail { color: var(--red); }
 .task-indicator.stopped { color: var(--red); }
 .task-indicator.waiting { color: var(--amber); }
-.task-indicator.saving { color: var(--green); }
 .task-action { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 4px; background: transparent; color: var(--icon); }
 .task-action { text-decoration: none; }
 .task-action:hover { background: var(--control); color: var(--icon); }
@@ -943,9 +942,6 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .task-history-detail { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
 .task-history-detail small { flex: 0 0 54px; color: var(--muted); font-size: 10px; }
 .task-history-detail strong { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.task-action.saving { color: var(--purple); cursor: progress; }
-.task-view-row.saving { border-color: var(--green); background: color-mix(in srgb, var(--green) 7%, var(--panel-raised)); }
-.task-view-row.saving .task-action.saving { color: var(--green); opacity: 1; }
 .task-action:disabled { opacity: .75; }
 @media (min-width: 720px) { .task-history-details { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px; } }
 

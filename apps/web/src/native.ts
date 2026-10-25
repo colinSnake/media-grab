@@ -14,3 +14,9 @@ export async function notifyDownloadFinished(title: string): Promise<void> {
   if (!isDesktop()) return
   await invoke('notify_download', { title })
 }
+
+/** Open a file that the local core has already written to the configured folder. */
+export async function openDownloadFile(directory: string, fileName: string): Promise<void> {
+  if (!isDesktop()) return
+  await invoke('open_download_file', { directory, fileName })
+}

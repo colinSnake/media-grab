@@ -415,13 +415,49 @@ describe('TaskService task identity', () => {
       const pairTask = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'video+audio', title: media.title })
       await waitFor(() => ['success', 'fail'].includes(taskService.get(pairTask.task.id)?.status ?? ''))
       expect(taskService.get(pairTask.task.id)).toMatchObject({ status: 'success', files: [{ kind: 'video', fileName: 'clip-video.mp4' }, { kind: 'audio', fileName: 'clip-audio.m4a' }] })
-      expect(probe('clip-video.mp4')).toEqual(['video'])
+      expect(probe('clip-video.mp4')).toEqual(['video', 'audio'])
       expect(probe('clip-audio.m4a')).toEqual(['audio'])
 
       const videoTask = await taskService.create({ platform: 'xiaohongshu', input: media.input, mode: 'video', title: media.title })
       await waitFor(() => ['success', 'fail'].includes(taskService.get(videoTask.task.id)?.status ?? ''))
       expect(taskService.get(videoTask.task.id)?.status).toBe('success')
       expect(probe('clip.mp4')).toEqual(['video'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(spawnSync('ffmpeg', ['-version']).status !== 0 || spawnSync('ffprobe', ['-version']).status !== 0)('muxes separate video and audio streams into a voiced video and a standalone audio file', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-mux-'))
+    const videoFixture = path.join(root, 'video-only.mp4')
+    const audioFixture = path.join(root, 'audio-only.m4a')
+    const repo = new FakeTaskRepository()
+    try {
+      execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1', '-an', '-c:v', 'mpeg4', '-y', videoFixture])
+      execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-vn', '-c:a', 'aac', '-y', audioFixture])
+      const videoBytes = await readFile(videoFixture)
+      const audioBytes = await readFile(audioFixture)
+      const media: MediaParseResult = {
+        platform: 'douyin', input: 'https://example.com/separate', id: 'separate', title: 'separate', authorName: '', cover: '', durationSec: 1,
+        streams: [
+          { id: 'video', kind: 'video', combined: false, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' },
+          { id: 'audio', kind: 'audio', combined: false, label: '128K', url: 'https://example.com/audio', backupUrls: [], available: true, reason: '' },
+        ],
+        itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+      }
+      const taskService = new TaskService({
+        repo: repo as never, platforms: {} as never, media: { parse: async () => media } as never,
+        config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+        dataDir: root,
+        fetchImpl: (async (input) => new Response(String(input).endsWith('/video') ? videoBytes : audioBytes, { status: 200 })) as typeof fetch,
+      })
+      const probe = (name: string) => execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(root, name)], { encoding: 'utf8' }).trim().split('\n')
+
+      const result = await taskService.create({ platform: 'douyin', input: media.input, mode: 'video+audio', audioContainer: 'm4a', title: media.title })
+      await waitFor(() => ['success', 'fail'].includes(taskService.get(result.task.id)?.status ?? ''))
+      expect(taskService.get(result.task.id)).toMatchObject({ status: 'success', files: [{ kind: 'video', fileName: 'separate-video.mp4' }, { kind: 'audio', fileName: 'separate-audio.m4a' }] })
+      expect(probe('separate-video.mp4')).toEqual(['video', 'audio'])
+      expect(probe('separate-audio.m4a')).toEqual(['audio'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }

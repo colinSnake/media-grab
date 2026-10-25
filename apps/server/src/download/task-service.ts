@@ -382,7 +382,39 @@ export class TaskService {
       if (videoPath !== undefined && task.mode !== 'audio') {
         const videoName = task.mode === 'video+audio' ? `${safeName(task.title)}-video.mp4` : fileName
         const temp = prepare(videoName, 'video')
-        if (video?.combined || task.platform === 'xiaohongshu') {
+        if (task.mode === 'video+audio') {
+          // DASH sources expose separate video/audio streams. Keep both tracks in
+          // the video output, while the audio output below remains a standalone
+          // file. Combined sources (for example some short-video platforms) use
+          // the same input for both tracks.
+          if (video?.combined || task.platform === 'xiaohongshu') {
+            await this.runFfmpeg([
+              '-i', videoPath,
+              '-map', '0:v:0',
+              '-map', '0:a:0?',
+              '-c:v', 'copy',
+              '-c:a', 'copy',
+              '-movflags', '+faststart',
+              '-f', 'mp4',
+              '-y', temp,
+            ], controller)
+          } else if (audioPath !== undefined) {
+            await this.runFfmpeg([
+              '-i', videoPath,
+              '-i', audioPath,
+              '-map', '0:v:0',
+              '-map', '1:a:0',
+              '-c:v', 'copy',
+              '-c:a', 'copy',
+              '-movflags', '+faststart',
+              '-f', 'mp4',
+              '-y', temp,
+            ], controller)
+          } else {
+            throw new ApiError('NO_AUDIO_STREAM', '没有找到可合并的音频流', 'permission', 403)
+          }
+        } else if (video?.combined || task.platform === 'xiaohongshu') {
+          // “仅视频”明确去掉音轨，即使源文件本身是视音频混合流。
           await this.runFfmpeg(['-i', videoPath, '-map', '0:v:0', '-an', '-c:v', 'copy', '-f', 'mp4', '-y', temp], controller)
         } else {
           await this.copyFile(videoPath, temp)

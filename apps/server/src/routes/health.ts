@@ -5,6 +5,7 @@ import type { HealthResponse } from '@mediagrab/shared'
 import type { ConfigStore } from '../lib/config-store.js'
 import { maskSecret } from '../lib/logger.js'
 import type { Services } from '../services.js'
+import { resolveDownloadDir } from '../paths.js'
 
 const SERVER_VERSION = '0.1.0'
 
@@ -57,6 +58,7 @@ export const healthRoutes: FastifyPluginAsync<HealthDeps> = async (app, opts) =>
       listen: bound,
       config: {
         savePath: config.savePath,
+        resolvedSavePath: resolveDownloadDir(config.savePath),
         defaultDownloadMode: config.defaultDownloadMode,
         audioContainer: config.audioContainer,
         serverPort: config.serverPort,

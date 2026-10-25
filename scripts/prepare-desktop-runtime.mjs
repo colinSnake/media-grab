@@ -24,6 +24,13 @@ function run(command, args, env = {}) {
   execFileSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } })
 }
 
+function pnpmMajorVersion() {
+  const version = execFileSync('pnpm', ['--version'], { cwd: root, encoding: 'utf8' }).trim()
+  const major = Number.parseInt(version.split('.', 1)[0] ?? '', 10)
+  if (!Number.isInteger(major)) throw new Error(`无法识别 pnpm 版本: ${version}`)
+  return major
+}
+
 async function normalizeDeployLinks(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   for (const entry of entries) {
@@ -68,8 +75,19 @@ await mkdir(runtimeDir, { recursive: true })
 
 console.log('收集 server 生产依赖 ...')
 // pnpm 10 requires injected workspace packages unless --legacy is explicit.
-// The release deploy is deliberately flattened to a self-contained hoisted runtime.
-run('pnpm', ['--filter', '@mediagrab/server', 'deploy', deployDir, '--prod', '--legacy', '--config.node-linker=hoisted'])
+// pnpm 12's legacy deploy path can omit transitive dependencies of workspace
+// packages, so use the default deploy implementation there. The release deploy
+// is deliberately flattened to a self-contained hoisted runtime.
+const deployArgs = [
+  '--filter',
+  '@mediagrab/server',
+  'deploy',
+  deployDir,
+  '--prod',
+  '--config.node-linker=hoisted',
+]
+if (pnpmMajorVersion() < 12) deployArgs.splice(5, 0, '--legacy')
+run('pnpm', deployArgs)
 
 // pnpm deploy keeps a self-link for the workspace package. It is useless at
 // runtime and points outside the deploy directory, so remove it before
@@ -100,6 +118,9 @@ try {
   await mkdir(sharedPackage, { recursive: true })
   await cp(path.join(root, 'packages', 'shared', 'dist'), path.join(sharedPackage, 'dist'), { recursive: true })
   await cp(path.join(root, 'packages', 'shared', 'package.json'), path.join(sharedPackage, 'package.json'))
+  if (!(await import('node:fs').then(({ existsSync }) => existsSync(path.join(runtimeDir, 'node_modules', 'zod', 'package.json'))))) {
+    throw new Error('桌面核心缺少 shared 的生产依赖 zod，请检查 pnpm deploy 模式。')
+  }
   await removeMatchingFiles(path.join(sharedPackage, 'dist'), (name) => name.endsWith('.d.ts') || name.endsWith('.map'))
   await cp(webDist, path.join(runtimeDir, 'web'), { recursive: true })
   await cp(nodeSource, path.join(runtimeDir, nodeName))

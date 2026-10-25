@@ -1,0 +1,34 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="surface" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7058E8"/>
+      <stop offset="0.52" stop-color="#4D6FE8"/>
+      <stop offset="1" stop-color="#2A9BEA"/>
+    </linearGradient>
+    <linearGradient id="card" x1="112" y1="96" x2="414" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAFBFF"/>
+      <stop offset="1" stop-color="#DDE8FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="20" width="472" height="472" rx="126" fill="url(#surface)"/>
+
+  <g stroke="#4E4DC2" stroke-width="12" stroke-linejoin="round">
+    <rect x="112" y="102" width="300" height="116" rx="52" fill="#D5D9FF" transform="rotate(-20 112 102)"/>
+    <rect x="112" y="198" width="300" height="116" rx="52" fill="#E7EBFF"/>
+    <rect x="112" y="294" width="300" height="116" rx="52" fill="url(#card)" transform="rotate(20 112 294)"/>
+  </g>
+
+  <path d="M162 199C119 190 119 322 162 313" stroke="#CDEAFF" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="162" cy="199" r="11" fill="#5956C6" stroke="#F4F5FF" stroke-width="5"/>
+  <circle cx="152" cy="256" r="11" fill="#5956C6" stroke="#F4F5FF" stroke-width="5"/>
+  <circle cx="162" cy="313" r="11" fill="#5956C6" stroke="#F4F5FF" stroke-width="5"/>
+
+  <path d="M252 132V174L289 153L252 132Z" fill="#514CC2" stroke="#514CC2" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M260 236V271M260 240L288 234V263" stroke="#514CC2" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="250" cy="274" r="12" fill="#514CC2"/>
+  <circle cx="278" cy="266" r="12" fill="#514CC2"/>
+  <path d="M236 375L252 360L265 371L278 360L296 375" stroke="#514CC2" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="232" y="334" width="68" height="50" rx="10" stroke="#514CC2" stroke-width="8"/>
+  <circle cx="282" cy="348" r="6" fill="#514CC2"/>
+</svg>

@@ -39,7 +39,7 @@ import type {
 } from '@mediagrab/shared'
 import { detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
 import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventConnection, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
-import logoUrl from './assets/mediagrab-logo.svg'
+import logoUrl from './assets/mediagrab-logo-small.svg'
 import { TaskRow, type DownloadResult } from './components/TaskRow'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
 import { isTerminalTask } from './components/TaskRow'
@@ -560,7 +560,7 @@ function App() {
     setDownloadResults((current) => ({ ...current, [id]: result }))
     setActiveView('history')
     setNotice(result.status === 'success'
-      ? { kind: 'success', text: '文件下载已开始，任务已移入历史记录。' }
+      ? { kind: 'success', text: isTauriDesktop() ? '已打开已保存文件，任务已移入历史记录。' : '文件下载已开始，任务已移入历史记录。' }
       : { kind: 'error', text: `下载失败：${result.error ?? '请稍后重试。'}` })
   }
 
@@ -790,7 +790,7 @@ function App() {
               </div>}
             </div>
           </div>
-          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong>{activeView === 'queue' && <span>从新建任务解析内容后加入下载队列。</span>}</div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} downloadResult={downloadResults[task.id]} onCancel={stopTask} onRetry={retryDownload} onRemove={removeHistoryTask} onDownloadResult={markTaskDownloaded} />)}</div>}
+          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong>{activeView === 'queue' && <span>从新建任务解析内容后加入下载队列。</span>}</div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} downloadDirectory={health?.config.resolvedSavePath} downloadResult={downloadResults[task.id]} onCancel={stopTask} onRetry={retryDownload} onRemove={removeHistoryTask} onDownloadResult={markTaskDownloaded} />)}</div>}
         </section>}
       </main>
 

@@ -97,7 +97,7 @@ apps/desktop/src-tauri/ Tauri/Rust 桌面宿主
 
 | 产物 | 处理 |
 | --- | --- |
-| 视频+音频 | 下载两条流，FFmpeg `-c copy` 合并并 `faststart` |
+| 视频+音频 | 下载两条流，FFmpeg `-c copy` 合并为带音轨 MP4，并额外提取独立 M4A |
 | 仅视频 | 下载视频流，remux 到目标容器 |
 | 仅音频 m4a | 下载音频流，零转码落盘 |
 | 仅音频 mp3 | 下载音频流，FFmpeg 转码 |

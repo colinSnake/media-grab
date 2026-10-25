@@ -49,6 +49,7 @@ export const healthResponseSchema = z.object({
   listen: z.object({ host: z.string(), port: z.number().int() }),
   config: z.object({
     savePath: z.string(),
+    resolvedSavePath: z.string(),
     defaultDownloadMode: downloadModeSchema,
     audioContainer: audioContainerSchema,
     serverPort: z.number().int(),

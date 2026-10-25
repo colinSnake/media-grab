@@ -15,7 +15,7 @@ export const CODEC_ID: Readonly<Record<Codec, number>> = {
  *
  * dash 模式下视频流与音频流本身就是两条独立的流，所以"支持音频下载"与"支持视频下载"
  * 是同一套取流逻辑的三种影音编排（详见 docs/tech-design.md §2）：
- * - `video+audio` 一条任务输出无音轨 MP4 和 M4A 两个文件；合并源只下载一次再分轨
+ * - `video+audio` 一条任务输出带音轨 MP4 和独立 M4A 两个文件；合并源只下载一次再分轨
  * - `video`       输出无音轨 MP4
  * - `audio`       输出 M4A（音轨复制封装）或转码为 MP3；合并源需先提取音轨
  * - `image`       小红书图文选中的单张图片直接下载，无需 FFmpeg（不能设为默认输出）

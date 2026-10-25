@@ -21,6 +21,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { platformLabel, qualityMeta, taskProgress, type TaskSnapshot } from '@mediagrab/shared'
 import { fetchWithCoreAuth } from '../api'
+import { isDesktop, openDownloadFile } from '../native'
 import { PlatformLogo } from './PlatformLogo'
 
 export type DownloadResult = { status: 'success' | 'fail'; error?: string }
@@ -115,6 +116,7 @@ export function TaskStatusIndicator({ status, error }: { status: TaskSnapshot['s
 export interface TaskRowProps {
   task: TaskSnapshot
   variant?: 'compact' | 'detail'
+  downloadDirectory?: string
   downloadResult?: DownloadResult
   onCancel?: (id: string) => void | Promise<void>
   onRetry?: (id: string) => void | Promise<void>
@@ -122,7 +124,7 @@ export interface TaskRowProps {
   onDownloadResult?: (id: string, result: DownloadResult) => void
 }
 
-export function TaskRow({ task, variant = 'detail', downloadResult, onCancel, onRetry, onRemove, onDownloadResult }: TaskRowProps) {
+export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadResult, onCancel, onRetry, onRemove, onDownloadResult }: TaskRowProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [busyAction, setBusyAction] = useState<'cancel' | 'retry' | 'remove' | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -147,24 +149,43 @@ export function TaskRow({ task, variant = 'detail', downloadResult, onCancel, on
     }
   }
 
-  async function downloadFile(kind?: 'video' | 'audio' | 'image', fileName?: string) {
+  async function downloadFile() {
     if (isSaving) return
     setIsSaving(true)
     try {
-      const response = await fetchWithCoreAuth(taskFileUrl(task.id, kind))
-      if (!response.ok) {
-        const data = await response.json().catch(() => null) as { error?: { message?: string } } | null
-        throw new Error(data?.error?.message ?? `HTTP ${response.status}`)
+      const targets = task.mode === 'video+audio' && outputFiles.length > 1
+        ? outputFiles
+        : outputFiles.slice(0, 1)
+      if (targets.length === 0) throw new Error('没有可下载的输出文件。')
+      const downloads: Array<{ fileName: string; blob: Blob }> = []
+      for (const target of targets) {
+        const kind = 'legacy' in target ? undefined : target.kind
+        if (isDesktop() && downloadDirectory) {
+          try {
+            await openDownloadFile(downloadDirectory, target.fileName)
+            continue
+          } catch {
+            // The core may have a newer resolved save path than the UI health
+            // snapshot. Fall back to the authenticated file endpoint below.
+          }
+        }
+        const response = await fetchWithCoreAuth(taskFileUrl(task.id, kind))
+        if (!response.ok) {
+          const data = await response.json().catch(() => null) as { error?: { message?: string } } | null
+          throw new Error(data?.error?.message ?? `HTTP ${response.status}`)
+        }
+        downloads.push({ fileName: target.fileName, blob: await response.blob() })
       }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = fileName || task.fileName || `${task.title || task.id}.mp4`
-      document.body.append(anchor)
-      anchor.click()
-      anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      for (const download of downloads) {
+        const url = URL.createObjectURL(download.blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = download.fileName
+        document.body.append(anchor)
+        anchor.click()
+        anchor.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }
       onDownloadResult?.(task.id, { status: 'success' })
     } catch (error) {
       onDownloadResult?.(task.id, { status: 'fail', error: error instanceof Error ? error.message : '保存失败' })
@@ -219,15 +240,20 @@ export function TaskRow({ task, variant = 'detail', downloadResult, onCancel, on
 
   const savedAt = new Date(task.updatedAt)
   const savedAtLabel = Number.isFinite(savedAt.getTime()) ? savedAt.toLocaleString() : ''
-  const indicatorStatus = task.status === 'success' ? downloadResult?.status : task.status
+  // The task status describes the core download. A later save/open attempt is
+  // a separate client-side action and must not replace the completed checkmark
+  // with a failure X in the task list.
+  const indicatorStatus = task.status
   const resourceLabel = [modeLabel, resolutionLabel].filter(Boolean).join(' · ')
   const statusLabel = task.status === 'success' && downloadResult === undefined ? '文件就绪' : detailsStatus(task, downloadResult)
-  const statusClass = indicatorStatus ?? task.status
+  const statusClass = downloadResult?.status === 'fail' ? 'fail' : task.status
   const errorDetails = downloadResult?.status === 'fail' ? downloadResult.error : task.error
   const sourceLink = task.input || task.sourceId || task.bvid || '未提供'
   const outputFiles = task.files.length > 0 ? task.files : task.fileName ? [{ kind: task.mode === 'audio' ? 'audio' as const : task.mode === 'image' ? 'image' as const : 'video' as const, fileName: task.fileName, legacy: true }] : []
+  const bundledOutput = task.mode === 'video+audio' && outputFiles.length > 1
+  const downloadLabel = bundledOutput ? '视频和音频' : outputFiles[0]?.kind === 'audio' ? '音频' : outputFiles[0]?.kind === 'image' ? '图片' : '视频'
   return (
-    <div className={variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''} ${isSaving ? 'saving' : ''}`}>
+    <div className={variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''}`}>
       <span className={`task-platform-icon ${task.platform}`} title={platformLabel[task.platform]}>
         {task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}
       </span>
@@ -238,16 +264,12 @@ export function TaskRow({ task, variant = 'detail', downloadResult, onCancel, on
           {resolutionLabel !== '' && <span className="task-resolution-tag" title={resolutionLabel}>{resolutionLabel}</span>}
         </span>
       </span>
-      {variant === 'detail' && (isSaving
-        ? <span className="task-indicator saving" aria-label="正在保存文件" title="正在保存文件"><LoaderCircle className="spin" /></span>
-        : indicatorStatus !== undefined
-          ? <TaskStatusIndicator status={indicatorStatus} error={downloadResult?.status === 'fail' ? downloadResult.error : task.error} />
-          : null)}
-      {variant === 'detail' && task.status === 'success' && outputFiles.map((file) => (
-        <button key={file.kind} className={`task-action ${isSaving ? 'saving' : ''}`} type="button" title={isSaving ? '正在保存文件…' : `保存${file.kind === 'audio' ? '音频' : file.kind === 'image' ? '图片' : '视频'}：${file.fileName}`} aria-label={`保存${file.kind === 'audio' ? '音频' : file.kind === 'image' ? '图片' : '视频'}`} onClick={() => void downloadFile('legacy' in file ? undefined : file.kind, file.fileName)} disabled={isSaving || busyAction !== null} aria-busy={isSaving}>
-          {isSaving ? <LoaderCircle className="spin" /> : file.kind === 'audio' ? <FileAudio2 /> : file.kind === 'image' ? <FileImage /> : <ArrowDownToLine />}
+      {variant === 'detail' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
+      {variant === 'detail' && task.status === 'success' && outputFiles.length > 0 && (
+        <button className="task-action" type="button" title={isSaving ? (isDesktop() ? '正在打开文件…' : '正在保存文件…') : `${isDesktop() ? '打开' : '保存'}${downloadLabel}${bundledOutput ? '文件' : `：${outputFiles[0]?.fileName ?? ''}`}`} aria-label={`${isDesktop() ? '打开' : '保存'}${downloadLabel}`} onClick={() => void downloadFile()} disabled={isSaving || busyAction !== null} aria-busy={isSaving}>
+          <ArrowDownToLine />
         </button>
-      ))}
+      )}
       {!terminal && onCancel !== undefined && <button className="task-action" type="button" title={busyAction === 'cancel' ? '正在取消' : '取消任务'} aria-label={busyAction === 'cancel' ? '正在取消任务' : '取消任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <X />}</button>}
       {terminal && task.status !== 'success' && onRetry !== undefined && <button className="task-action" type="button" title={busyAction === 'retry' ? '正在加入队列' : '重试任务'} aria-label={busyAction === 'retry' ? '正在重试任务' : '重试任务'} onClick={() => void runAction('retry', onRetry)} disabled={busyAction !== null} aria-busy={busyAction === 'retry'}>{busyAction === 'retry' ? <LoaderCircle className="spin" /> : <RotateCcw />}</button>}
       {variant === 'detail' && <button className="task-action" type="button" title="更多任务信息" aria-label="更多任务信息" onClick={() => setShowDetails(true)}><MoreHorizontal /></button>}

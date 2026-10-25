@@ -4,7 +4,7 @@ use sha2::Sha256;
 use std::fmt::Write as FmtWrite;
 use std::io::{Read, Write as IoWrite};
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -71,6 +71,36 @@ fn choose_download_dir(app: AppHandle) -> Result<Option<String>, String> {
                 .map_err(|error| format!("无法读取所选目录: {error}"))
         })
         .transpose()
+}
+
+#[tauri::command]
+fn open_download_file(directory: String, file_name: String) -> Result<(), String> {
+    let name = Path::new(&file_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| *value == file_name && *value != "." && *value != "..")
+        .ok_or_else(|| "下载文件名不合法".to_owned())?;
+    let file = PathBuf::from(directory).join(name);
+    if !file.is_file() {
+        return Err("下载文件不存在，请重新下载".to_owned());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "linux")]
+    let mut command = std::process::Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    };
+
+    command.arg(&file);
+    command
+        .spawn()
+        .map_err(|error| format!("无法打开已保存文件: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -292,6 +322,7 @@ pub fn run() {
             get_runtime_info,
             open_app_data_dir,
             choose_download_dir,
+            open_download_file,
             notify_download,
             get_core_access
         ])
