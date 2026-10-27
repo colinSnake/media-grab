@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { describe, expect, it } from 'vitest'
-import type { TaskSnapshot } from '@mediagrab/shared'
+import { describe, expect, it, vi } from 'vitest'
+import { taskSnapshotSchema, type TaskSnapshot } from '@mediagrab/shared'
 import { httpStatusOf, toApiErrorBody } from '../lib/errors.js'
 import { taskRoutes } from './tasks.js'
 
@@ -36,6 +36,76 @@ describe('task file downloads', () => {
     } finally {
       await app.close()
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('serves files from their original directory after the configured directory changes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-original-'))
+    const original = path.join(root, 'original')
+    const current = path.join(root, 'current')
+    const app = Fastify()
+    const task = taskSnapshotSchema.parse({ id: 'previous', bvid: '', cid: 0, status: 'success', phase: 'done', fileName: 'clip.mp4', outputDir: original, updatedAt: Date.now() })
+    try {
+      app.setErrorHandler((error, _request, reply) => reply.status(httpStatusOf(error)).send(toApiErrorBody(error)))
+      await mkdir(original)
+      await mkdir(current)
+      await writeFile(path.join(original, 'clip.mp4'), 'original')
+      await writeFile(path.join(current, 'clip.mp4'), 'wrong-file')
+      await app.register(taskRoutes, { services: {
+        downloads: { get: () => task }, config: { get: () => ({ savePath: current }) },
+      } as never })
+
+      expect((await app.inject({ method: 'GET', url: '/api/tasks/previous/file' })).body).toBe('original')
+      await rm(path.join(original, 'clip.mp4'))
+      const missing = await app.inject({ method: 'GET', url: '/api/tasks/previous/file' })
+      expect(missing.statusCode).toBe(404)
+      expect(missing.json().error.code).toBe('FILE_NOT_FOUND')
+      // Legacy snapshots without outputDir still use the current configured directory.
+      task.outputDir = undefined
+      expect((await app.inject({ method: 'GET', url: '/api/tasks/previous/file' })).body).toBe('wrong-file')
+    } finally {
+      await app.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('task deletion', () => {
+  it('waits for an active queue task to finish cancellation before replying', async () => {
+    const app = Fastify()
+    let finishRemoval!: (removed: boolean) => void
+    const removal = new Promise<boolean>((resolve) => { finishRemoval = resolve })
+    const remove = vi.fn(() => removal)
+    try {
+      await app.register(taskRoutes, { services: { downloads: { remove } } as never })
+      let responded = false
+      const response = app.inject({ method: 'DELETE', url: '/api/tasks/queued' }).then((reply) => {
+        responded = true
+        return reply
+      })
+      await vi.waitFor(() => expect(remove).toHaveBeenCalledWith('queued'))
+      expect(responded).toBe(false)
+      finishRemoval(true)
+      expect((await response).statusCode).toBe(204)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
+describe('queued task start', () => {
+  it('starts only when the start endpoint is called and reports missing tasks', async () => {
+    const app = Fastify()
+    const task = { id: 'queued', status: 'waiting' } as TaskSnapshot
+    const start = vi.fn((id: string) => id === task.id ? task : null)
+    try {
+      app.setErrorHandler((error, _request, reply) => reply.status(httpStatusOf(error)).send(toApiErrorBody(error)))
+      await app.register(taskRoutes, { services: { downloads: { start } } as never })
+      expect((await app.inject({ method: 'POST', url: '/api/tasks/queued/start' })).json()).toMatchObject({ id: 'queued', status: 'waiting' })
+      expect(start).toHaveBeenCalledWith('queued')
+      expect((await app.inject({ method: 'POST', url: '/api/tasks/missing/start' })).statusCode).toBe(404)
+    } finally {
+      await app.close()
     }
   })
 })

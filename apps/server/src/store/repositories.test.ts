@@ -285,8 +285,16 @@ describe('TaskRepository', () => {
 
     repo.save(first)
     repo.save(second)
-    expect(repo.get('task-a')).toEqual(first)
+    expect(repo.get('task-a')).toEqual({ ...first, createdAt: 10 })
     expect(repo.list().map((task) => task.id)).toEqual(['task-b', 'task-a'])
+
+    repo.save({ ...first, status: 'success', downloadedBytes: 2048, transferDurationMs: 1500, updatedAt: 30 })
+    expect(repo.list().map((task) => ({ id: task.id, createdAt: task.createdAt }))).toEqual([
+      { id: 'task-a', createdAt: 10 },
+      { id: 'task-b', createdAt: 20 },
+    ])
+    expect(repo.get('task-a')?.createdAt).toBe(10)
+    expect(repo.get('task-a')).toMatchObject({ downloadedBytes: 2048, transferDurationMs: 1500 })
 
     repo.delete('task-a')
     expect(repo.get('task-a')).toBeNull()

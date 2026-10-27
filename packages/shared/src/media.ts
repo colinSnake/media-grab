@@ -42,6 +42,16 @@ export const mediaParseResultSchema = z.object({
 })
 export type MediaParseResult = z.infer<typeof mediaParseResultSchema>
 
+/** Client-facing media details never contain upstream URLs or request headers. */
+export const publicMediaStreamSchema = mediaStreamSchema.omit({ url: true, backupUrls: true, httpHeaders: true }).extend({
+  preview: z.string().startsWith('/api/cover?ref=').optional(),
+})
+export const publicMediaParseResultSchema = mediaParseResultSchema.omit({ streams: true, cover: true }).extend({
+  cover: z.string().startsWith('/api/cover?ref=').or(z.literal('')),
+  streams: z.array(publicMediaStreamSchema),
+})
+export type PublicMediaParseResult = z.infer<typeof publicMediaParseResultSchema>
+
 export const mediaParseRequestSchema = z.object({
   input: z.string().min(1, '请输入媒体链接'),
 })

@@ -5,13 +5,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { platformDefinition, platformLabel, type ExtractorPlatform, type MediaParseResult, type MediaStream } from '@mediagrab/shared'
+import { platformLabel, type ExtractorPlatform, type MediaParseResult, type MediaStream } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
 import { findRepoRoot } from '../paths.js'
 import { resolveYtDlpExecutable } from '../media-tools.js'
 import { ExtractorGate } from './extractor-gate.js'
+import { parsePublicDouyinVideo } from './douyin-public.js'
 
 const execFileAsync = promisify(execFile)
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
@@ -142,6 +143,7 @@ export interface YtDlpAdapterOptions {
   logger?: Logger
   exec?: ExecLike
   gate?: ExtractorGate
+  fetchImpl?: typeof fetch
 }
 
 export class YtDlpAdapter {
@@ -152,6 +154,7 @@ export class YtDlpAdapter {
   #logger: Logger
   #exec: ExecLike
   #gate: ExtractorGate
+  #fetch: typeof fetch
 
   constructor(options: YtDlpAdapterOptions) {
     this.platform = options.platform
@@ -161,6 +164,7 @@ export class YtDlpAdapter {
     this.#logger = options.logger ?? silentLogger
     this.#exec = options.exec ?? (execFileAsync as unknown as ExecLike)
     this.#gate = options.gate ?? new ExtractorGate(this.platform === 'youtube' ? 500 : 1_500)
+    this.#fetch = options.fetchImpl ?? fetch
   }
 
   setExecutable(candidate = ''): void {
@@ -212,6 +216,17 @@ export class YtDlpAdapter {
       if (options?.signal?.aborted) throw new ApiError('TASK_CANCELLED', '任务已取消', 'invalid', 400)
       this.#logger.warn({ platform: this.platform, error: error instanceof Error ? error.message : String(error) }, 'yt-dlp 解析失败')
       const message = error instanceof Error ? error.message : String(error)
+      if (this.platform === 'douyin' && /fresh cookies|failed to download web detail JSON/i.test(message)) {
+        try {
+          const publicVideo = await this.#gate.run(() => parsePublicDouyinVideo(input, this.#fetch, options?.signal), options?.signal)
+          if (publicVideo !== undefined) return publicVideo
+          throw new ApiError('DOUYIN_DETAILS_UNAVAILABLE', 'yt-dlp 与抖音公开页都未取得该作品的可用详情，请确认它在浏览器中可播放', 'permission', 403)
+        } catch (fallbackError) {
+          if (options?.signal?.aborted) throw new ApiError('TASK_CANCELLED', '任务已取消', 'invalid', 400)
+          if (fallbackError instanceof ApiError) throw fallbackError
+          throw new ApiError('DOUYIN_PUBLIC_FETCH_FAILED', '抖音公开页请求失败，请检查网络后重试', 'network', 502)
+        }
+      }
       if (/not found|enoent|cannot find/i.test(message)) {
         throw new ApiError('EXTRACTOR_UNAVAILABLE', '未找到 yt-dlp。请安装 yt-dlp 并将其加入 PATH，或在设置中配置可执行文件路径。', 'fatal', 503)
       }
@@ -221,14 +236,8 @@ export class YtDlpAdapter {
       if (/HTTP Error (?:412|429)\b|too many requests|rate.?limit(?:ed|ing)?/i.test(message)) {
         throw new ApiError('PLATFORM_RATE_LIMITED', `${platformLabel[this.platform]}请求受限，请稍后重试。`, 'risk', 429)
       }
-      if (/private video|login required|video unavailable|not available in your country/i.test(message)) {
-        throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
-      }
-      if (/fresh cookies|cookies.*needed|cookies.*required/i.test(message)) {
+      if (/fresh cookies|cookies.*needed|cookies.*required|sign in to confirm|sign in to prove|login required/i.test(message)) {
         const label = platformLabel[this.platform]
-        if (platformDefinition(this.platform)?.cookieSupport === 'unsupported') {
-          throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}要求登录或验证身份；当前版本尚未支持导入该平台的 Cookie。`, 'permission', 403)
-        }
         // yt-dlp also reports "Fresh cookies" when Douyin returns no detail JSON.
         // With a cookie already provided, do not claim it is definitely missing or expired.
         let configured = false
@@ -237,6 +246,9 @@ export class YtDlpAdapter {
           throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label} Cookie 已配置，但平台仍未返回视频详情。请确认该视频在同一浏览器中可播放；也可能是 Cookie 失效、内容受限或平台风控。`, 'permission', 403)
         }
         throw new ApiError('MEDIA_COOKIE_REQUIRED', `${label}需要新鲜的 Cookie。请在平台设置中粘贴有效 Cookie后重试。`, 'permission', 403)
+      }
+      if (/private video|video unavailable|not available in your country/i.test(message)) {
+        throw new ApiError('MEDIA_PERMISSION_DENIED', '该内容需要登录、受限或当前身份无权访问。', 'permission', 403)
       }
       throw new ApiError('EXTRACTOR_FAILED', `${platformLabel[this.platform]}解析失败：${message}`, 'network', 502)
     }

@@ -277,7 +277,7 @@ export class TaskRepository {
 
   list(): TaskSnapshot[] {
     const rows = this.#db
-      .prepare('SELECT snapshot FROM tasks ORDER BY updated_at DESC')
+      .prepare('SELECT snapshot, created_at FROM tasks ORDER BY updated_at DESC')
       .all()
     const result: TaskSnapshot[] = []
     for (const row of rows) {
@@ -285,7 +285,7 @@ export class TaskRepository {
       if (raw === null) continue
       try {
         const parsed = taskSnapshotSchema.safeParse(JSON.parse(raw))
-        if (parsed.success) result.push(parsed.data)
+        if (parsed.success) result.push({ ...parsed.data, createdAt: asNumber(row['created_at']) ?? parsed.data.createdAt ?? parsed.data.updatedAt })
       } catch {
         // 损坏的历史任务不应阻塞应用启动；诊断信息留给数据库检查工具。
       }
@@ -294,13 +294,13 @@ export class TaskRepository {
   }
 
   get(id: string): TaskSnapshot | null {
-    const row = this.#db.prepare('SELECT snapshot FROM tasks WHERE id = ?').get(id)
+    const row = this.#db.prepare('SELECT snapshot, created_at FROM tasks WHERE id = ?').get(id)
     if (row === undefined) return null
     const raw = asString(row['snapshot'])
     if (raw === null) return null
     try {
       const parsed = taskSnapshotSchema.safeParse(JSON.parse(raw))
-      return parsed.success ? parsed.data : null
+      return parsed.success ? { ...parsed.data, createdAt: asNumber(row['created_at']) ?? parsed.data.createdAt ?? parsed.data.updatedAt } : null
     } catch {
       return null
     }
@@ -317,7 +317,7 @@ export class TaskRepository {
            status = excluded.status,
            updated_at = excluded.updated_at`,
       )
-      .run(task.id, JSON.stringify(task), task.status, now, now)
+      .run(task.id, JSON.stringify(task), task.status, task.createdAt ?? now, now)
   }
 
   delete(id: string): void {

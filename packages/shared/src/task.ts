@@ -3,6 +3,7 @@ import { audioContainerSchema, downloadModeSchema } from './config.js'
 import { platformSchema } from './platform.js'
 
 export const taskStatusSchema = z.enum([
+  'queued',
   'waiting',
   'downloading',
   'merging',
@@ -49,14 +50,25 @@ export const taskSnapshotSchema = z.object({
   downloadedBytes: z.number().int().nonnegative().default(0),
   /** 瞬时速度（字节/秒） */
   speedBps: z.number().int().nonnegative().default(0),
+  /** 本次任务实际传输耗时之和（不包含排队、取流和封装）；旧任务无此数据。 */
+  transferDurationMs: z.number().int().nonnegative().optional(),
   /** 最终产物相对 savePath 的文件名 */
   fileName: z.string().default(''),
+  /** 产物写入时的绝对目录；旧历史任务没有此字段。 */
+  outputDir: z.string().min(1).optional(),
   /** 一个任务可同时保存视频和音频；旧任务仍可通过 fileName 读取。 */
   files: z.array(taskOutputSchema).default([]),
   error: z.string().default(''),
+  /** 创建时刻固定不变，用于队列与历史列表稳定排序；旧快照由仓储补齐。 */
+  createdAt: z.number().int().optional(),
   updatedAt: z.number().int(),
 })
 export type TaskSnapshot = z.infer<typeof taskSnapshotSchema>
+
+/** 最新创建的任务在前；状态刷新不改变任务原有位置。 */
+export function compareTaskCreation(left: TaskSnapshot, right: TaskSnapshot): number {
+  return (right.createdAt ?? right.updatedAt) - (left.createdAt ?? left.updatedAt) || left.id.localeCompare(right.id)
+}
 
 /**
  * 同一来源只有在输出配置也相同的情况下才算重复。
@@ -89,6 +101,8 @@ export function isTerminal(status: TaskStatus): boolean {
 }
 
 export const createTaskRequestSchema = z.object({
+  /** false keeps the task in the queue until the user starts it explicitly. */
+  start: z.boolean().optional(),
   platform: platformSchema.exclude(['unknown']).optional(),
   input: z.string().min(1).optional(),
   bvid: z.string().regex(/^BV[0-9A-Za-z]{10}$/, 'bvid 格式不正确').optional(),

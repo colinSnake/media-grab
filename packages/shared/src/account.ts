@@ -30,7 +30,7 @@ export const biliAccountImportSchema = z.object({
 })
 export type BiliAccountImport = z.infer<typeof biliAccountImportSchema>
 
-export const cookieAccountPlatformSchema = z.enum(['douyin', 'xiaohongshu'])
+export const cookieAccountPlatformSchema = z.enum(['douyin', 'xiaohongshu', 'youtube'])
 export type CookieAccountPlatform = z.infer<typeof cookieAccountPlatformSchema>
 
 export const cookieAccountParamsSchema = z.object({ platform: cookieAccountPlatformSchema })

@@ -23,7 +23,11 @@ Node/Fastify 统一负责 Web 与桌面版共用的解析、下载任务、平�
 
 ### yt-dlp 作为可选平台 extractor
 
-抖音和小红书的网页结构、短链跳转和媒体格式经常变化，不把第三方站点的逆向细节复制到 mediaGrab 核心。adapter 通过 `yt-dlp --dump-single-json --no-playlist --skip-download` 获取统一媒体描述，再转换为 `MediaParseResult`。yt-dlp 只负责解析和给出用户有权访问的媒体地址，下载任务、文件安全、FFmpeg 和权限提示仍由 mediaGrab 控制。
+抖音、小红书和 YouTube 的网页结构、短链跳转和媒体格式经常变化，不把第三方站点的逆向细节复制到 mediaGrab 核心。adapter 通过 `yt-dlp --dump-single-json --no-playlist --skip-download` 获取统一媒体描述，再转换为 `MediaParseResult`。yt-dlp 只负责解析和给出用户有权访问的媒体地址，下载任务、文件安全、FFmpeg 和权限提示仍由 mediaGrab 控制。
+
+设置页为抖音、小红书、YouTube 分别提供 Cookie 输入，接收 Cookie 请求头或 Netscape 文件；服务端只保留对应平台的域名记录（包括 Netscape `#HttpOnly_` 条目），规范化后写入本地加密保险箱。B站 Cookie 经过单独的账号验证与保管流程。`GET /api/accounts/:platform/cookie` 只返回 `configured`，保存和清除接口也不回传凭据。解析时 yt-dlp 从权限为 0600 的临时 Cookie 文件读取内容，调用结束后在 `finally` 中删除；各平台分别取自己的凭据。YouTube 支持在解析时附带 Cookie，不等于保证登录成功或解锁高码率，真实账号与下载仍待验收。
+
+前端保存成功后仅在当前会话内保留用户粘贴的 textarea 内容，不写入浏览器持久存储；重新启动不回显明文，但服务端保存的凭据仍可使用。B站验证明确返回未登录时清除该凭据；yt-dlp 对其他平台的一次失败无法可靠区分 Cookie 过期、内容受限与限流，不自动删除凭据。
 
 ## 2. 目标架构
 
@@ -139,7 +143,7 @@ SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下�
 | 业务核心 | Node.js + Fastify | Web 与桌面共用实现，复用现有平台和任务能力 |
 | 存储 | SQLite | 单机任务可靠、查询简单、无需服务端 |
 | 实时通信 | WebSocket | Web 与桌面共用事件契约，断线时回退快照轮询 |
-| 抖音/小红书 extractor | yt-dlp bridge | 平台变动集中在成熟 extractor，产品核心保持稳定 |
+| 抖音/小红书/YouTube extractor | yt-dlp bridge | 平台变动集中在成熟 extractor，产品核心保持稳定 |
 
 ## 10. 桌面运行规则
 

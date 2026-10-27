@@ -64,7 +64,7 @@ mediaGrab 的核心界面天然适合用 Web 技术迭代，但目标产品又�
 
 **现在已经落地**：React/Vite UI、Node.js/Fastify 本地服务、SQLite 持久化、共享 TypeScript/Zod 契约、Tauri 2 桌面 shell，以及服务端调用媒体工具的代码路径。
 
-**仍需完成**：为三平台固定并注入 FFmpeg/yt-dlp 二进制和许可证说明；完成三系统真实安装和端到端验收；补齐签名、升级和发行流程。详见[桌面媒体工具方案](./media-tools.md)、[路线图](./roadmap.md) 与 [技术设计](./tech-design.md)。
+**仍需完成**：为三平台固定并注入 FFmpeg/yt-dlp 二进制和许可证说明；完成三系统真实安装和端到端验收；补齐签名、升级和发行流程。详见[桌面媒体工具方案](./media-tools.md)、[路线图](./ROADMAP.md) 与 [技术设计](./TECH-DESIGN.md)。
 
 ## 手动构建命令
 
@@ -106,10 +106,10 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 
 ## 相关文档
 
-- [README English](./README.md)
-- [产品需求](./prd.md)
-- [技术设计](./tech-design.md)
-- [项目路线图](./roadmap.md)
-- [风险与合规边界](./risk-control.md)
+- [README English](../README.md)
+- [产品需求](./PRD.md)
+- [技术设计](./TECH-DESIGN.md)
+- [项目路线图](./ROADMAP.md)
+- [风险与合规边界](./RISK-CONTROL.md)
 - [项目结构与开发规范](./project-structure-and-conventions.md)
 - [桌面媒体工具方案](./media-tools.md)

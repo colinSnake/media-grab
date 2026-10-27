@@ -10,7 +10,7 @@
 >
 > 粘贴链接，查看可用内容，创建下载任务，把文件留在自己的设备上。
 
-[English](./README.md) · [技术设计](./docs/tech-design.md) · [项目技术选型](./docs/technology-selection.md)
+[English](./README.md) · [技术设计](./docs/TECH-DESIGN.md) · [项目技术选型](./docs/technology-selection.md)
 
 MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链接解析、视频/音频选择、下载进度和任务历史放到同一个桌面应用里。项目从解决“工具分散、资源看不懂、下载过程难追踪”开始：让用户知道链接里有什么、当前账号实际能获取什么，以及每个任务最后发生了什么。
 
@@ -42,6 +42,14 @@ MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链�
 | 媒体工具 | FFmpeg、yt-dlp | 分别参与媒体处理，以及部分平台的格式提取流程。 |
 
 更完整的选型理由、优缺点和当前/目标架构见[项目技术选型](./docs/technology-selection.md)。
+
+## 平台 Cookie
+
+在「应用设置」的 B站、抖音、小红书或 YouTube 标签下，可以粘贴自己账号的 Cookie；抖音、小红书和 YouTube 支持 Cookie 请求头或 Netscape Cookie 文件内容。YouTube Cookie 会交给 yt-dlp 用于解析需要登录的资源，**不保证获得更高码率**；目前尚未使用真实 YouTube Cookie 验收完整下载链路。
+
+凭据加密保存在本机，不写入任务记录，也不会由 Cookie 状态接口返回明文。保存后输入框在当前应用会话内保留已粘贴内容；重启后输入框不会回显，但已保存的 Cookie 仍生效，可通过清除按钮主动删除。B站验证明确返回未登录时会删除该凭据并清空输入框；其他平台的一次解析失败可能由限流、内容受限等原因引起，**不会自动判定 Cookie 过期并清除**。B站账号信息默认隐藏，多账号可展开「管理已保存账号」。
+
+设置弹窗左侧的下载目录、yt-dlp 路径和默认输出在编辑后失焦时分别自动保存；右侧各平台的「保存 / 清空」只管理该平台 Cookie，不代替左侧参数保存。
 
 ## 手动构建桌面版
 
@@ -93,11 +101,11 @@ pnpm dev:desktop
 
 ## 文档
 
-- [产品需求](./docs/prd.md)
-- [技术设计](./docs/tech-design.md)
+- [产品需求](./docs/PRD.md)
+- [技术设计](./docs/TECH-DESIGN.md)
 - [项目技术选型（通俗版）](./docs/technology-selection.md)
-- [项目路线图](./docs/roadmap.md)
-- [风险与合规边界](./docs/risk-control.md)
+- [项目路线图](./docs/ROADMAP.md)
+- [风险与合规边界](./docs/RISK-CONTROL.md)
 - [项目结构与开发规范](./docs/project-structure-and-conventions.md)
 
 ## 合规使用

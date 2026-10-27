@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { taskDedupeKey, taskSnapshotSchema, type TaskSnapshot } from './task.js'
+import { compareTaskCreation, createTaskRequestSchema, taskDedupeKey, taskSnapshotSchema, type TaskSnapshot } from './task.js'
+
+it('parses explicitly queued requests and persists the queued status', () => {
+  expect(createTaskRequestSchema.parse({ start: false, bvid: 'BV1GJ411x7h7', cid: 1 }).start).toBe(false)
+  expect(taskSnapshotSchema.parse({ id: 'queued', bvid: '', cid: 0, status: 'queued', phase: 'pending', updatedAt: 1 }).status).toBe('queued')
+})
 
 function task(overrides: Partial<TaskSnapshot> = {}): Pick<TaskSnapshot, 'platform' | 'sourceId' | 'input' | 'bvid' | 'cid' | 'qn' | 'streamId' | 'mode' | 'audioContainer'> {
   return {
@@ -42,5 +47,14 @@ it('reads existing single-file task snapshots without a files field', () => {
     bvid: '', cid: 0, title: 'clip', status: 'success', phase: 'done', mode: 'video+audio',
     totalBytes: 1024, downloadedBytes: 1024, speedBps: 0, fileName: 'clip.mp4', error: '', updatedAt: 1,
   }
-  expect(taskSnapshotSchema.parse(legacy)).toMatchObject({ fileName: 'clip.mp4', files: [] })
+  const parsed = taskSnapshotSchema.parse(legacy)
+  expect(parsed).toMatchObject({ fileName: 'clip.mp4', files: [] })
+  expect(parsed).not.toHaveProperty('transferDurationMs')
+})
+
+it('keeps creation order when an older task is updated or saved later', () => {
+  const older = { id: 'older', createdAt: 100, updatedAt: 400 } as TaskSnapshot
+  const newer = { id: 'newer', createdAt: 200, updatedAt: 200 } as TaskSnapshot
+  expect([older, newer].sort(compareTaskCreation).map((item) => item.id)).toEqual(['newer', 'older'])
+  expect([newer, { ...older, updatedAt: 900 }].sort(compareTaskCreation).map((item) => item.id)).toEqual(['newer', 'older'])
 })

@@ -1,4 +1,5 @@
-import { mediaParseRequestSchema, platformCoverReferer, platformForCoverHost } from '@mediagrab/shared'
+import { mediaParseRequestSchema, platformCoverReferer, platformForCoverHost, type PublicMediaParseResult } from '@mediagrab/shared'
+import { randomBytes } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { ApiError } from '../lib/errors.js'
 import { parseBody } from '../lib/validate.js'
@@ -54,15 +55,43 @@ async function readCoverBody(response: Response): Promise<Buffer> {
 }
 
 export const mediaRoutes: FastifyPluginAsync<MediaRoutesDeps> = async (app, opts) => {
+  const previews = new Map<string, { url: string; expiresAt: number }>()
+  const registerPreview = (url: string): string => {
+    if (url === '') return ''
+    try { coverUrlFromQuery(url) } catch { return '' }
+    const now = Date.now()
+    for (const [key, item] of previews) if (item.expiresAt <= now) previews.delete(key)
+    const oldest = previews.keys().next().value
+    if (previews.size >= 256 && oldest !== undefined) previews.delete(oldest)
+    const ref = randomBytes(16).toString('hex')
+    previews.set(ref, { url, expiresAt: now + 30 * 60_000 })
+    return `/api/cover?ref=${ref}`
+  }
+
   app.post('/api/media/parse', async (req) => {
     const body = parseBody(mediaParseRequestSchema, req.body)
-    return opts.services.media.parse(body.input)
+    const parsed = await opts.services.media.parse(body.input)
+    const result: PublicMediaParseResult = {
+      ...parsed,
+      cover: registerPreview(parsed.cover),
+      streams: parsed.streams.map(({ url, backupUrls: _backupUrls, httpHeaders: _httpHeaders, ...stream }) => ({
+        ...stream,
+        ...(stream.kind === 'image' ? { preview: registerPreview(url) } : {}),
+      })),
+    }
+    return result
   })
 
 /** 平台封面 CDN 在部分浏览器/WebView 中会被拦截，改由本地核心代取并缓存。 */
   app.get('/api/cover', async (req, reply) => {
-    const query = req.query as { url?: unknown }
-    const url = coverUrlFromQuery(query.url)
+    const query = req.query as { url?: unknown; ref?: unknown }
+    let source = query.url
+    if (query.ref !== undefined) {
+      const stored = typeof query.ref === 'string' && /^[a-f0-9]{32}$/.test(query.ref) ? previews.get(query.ref) : undefined
+      if (stored === undefined || stored.expiresAt <= Date.now()) throw new ApiError('COVER_NOT_FOUND', '预览已过期，请重新解析', 'notFound', 404)
+      source = stored.url
+    }
+    const url = coverUrlFromQuery(source)
     let response: Response
     try {
       response = await fetch(url, {
@@ -84,7 +113,7 @@ export const mediaRoutes: FastifyPluginAsync<MediaRoutesDeps> = async (app, opts
       throw new ApiError('INVALID_COVER_RESPONSE', '封面服务返回的不是图片', 'fatal', 502)
     }
     return reply
-      .header('Cache-Control', 'public, max-age=86400')
+      .header('Cache-Control', query.ref === undefined ? 'public, max-age=86400' : 'private, max-age=300')
       .type(contentType)
       .send(await readCoverBody(response))
   })

@@ -7,7 +7,7 @@ import type {
   CreateTaskRequest,
   CreateTaskResponse,
   HealthResponse,
-  MediaParseResult,
+  PublicMediaParseResult,
   ParseResult,
   TaskSnapshot,
   CookieAccountPlatform,
@@ -156,8 +156,8 @@ export function parseMedia(input: string, page?: number): Promise<ParseResult> {
   })
 }
 
-export function parseUniversalMedia(input: string): Promise<MediaParseResult> {
-  return request<MediaParseResult>('/api/media/parse', {
+export function parseUniversalMedia(input: string): Promise<PublicMediaParseResult> {
+  return request<PublicMediaParseResult>('/api/media/parse', {
     method: 'POST',
     body: JSON.stringify({ input }),
   })
@@ -180,6 +180,10 @@ export function getExtractorStatus(): Promise<ExtractorStatus> {
 
 export function createTask(payload: CreateTaskRequest): Promise<CreateTaskResponse> {
   return request<CreateTaskResponse>('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function startTask(id: string): Promise<TaskSnapshot> {
+  return request<TaskSnapshot>(`/api/tasks/${encodeURIComponent(id)}/start`, { method: 'POST' })
 }
 
 export function cancelTask(id: string): Promise<TaskSnapshot> {

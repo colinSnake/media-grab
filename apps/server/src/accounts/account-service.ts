@@ -96,7 +96,7 @@ export class AccountService {
   }
 
   cookie(platform: ExtractorPlatform): string | undefined {
-    if (platform !== 'douyin' && platform !== 'xiaohongshu') return undefined
+    if (platform !== 'douyin' && platform !== 'xiaohongshu' && platform !== 'youtube') return undefined
     return this.#vault.get(cookieId(platform)) ?? undefined
   }
 
@@ -189,7 +189,10 @@ export class AccountService {
       updatedAt: Date.now(),
     }
     this.#repo.save(next)
-    if (!loggedIn) throw new ApiError('ACCOUNT_NOT_LOGGED_IN', 'B站 Cookie 已失效或未登录', 'auth', 403)
+    if (!loggedIn) {
+      this.#vault.delete(id)
+      throw new ApiError('ACCOUNT_NOT_LOGGED_IN', 'B站 Cookie 已失效或未登录', 'auth', 403)
+    }
     return summary(next)
   }
 

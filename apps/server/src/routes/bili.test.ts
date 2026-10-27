@@ -385,14 +385,26 @@ describe('抖音 Cookie API', () => {
     expect(cleared.json()).toEqual({ configured: false })
   })
 
-  it('Cookie 平台参数只接受目录支持的来源', async () => {
+  it('YouTube Cookie API 仅回传配置状态', async () => {
     const { app: instance } = await setup()
     const saved = await instance.inject({
       method: 'POST',
       url: '/api/accounts/youtube/cookie',
-      payload: { cookie: 'sessionid=ignored' },
+      payload: { cookie: 'SID=do-not-return-this' },
     })
-    expect(saved.statusCode).toBe(400)
-    expect(saved.json()).toMatchObject({ error: { code: 'INVALID_INPUT' } })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.body).not.toContain('do-not-return-this')
+    const status = await instance.inject({ method: 'GET', url: '/api/accounts/youtube/cookie' })
+    expect(status.json()).toEqual({ configured: true })
+    const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/youtube/cookie' })
+    expect(cleared.json()).toEqual({ configured: false })
+  })
+
+  it('Cookie 平台参数拒绝未知来源', async () => {
+    const { app: instance } = await setup()
+    const response = await instance.inject({ method: 'POST', url: '/api/accounts/unknown/cookie', payload: { cookie: 'SID=ignored' } })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'INVALID_INPUT' } })
   })
 })

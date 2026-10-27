@@ -8,12 +8,15 @@ import {
   FileAudio2,
   FileImage,
   FileVideo2,
+  FolderDown,
+  FolderOpen,
   Gauge,
   HardDrive,
   Link2,
   LoaderCircle,
   MoreHorizontal,
   RotateCcw,
+  CircleStop,
   Trash2,
   X,
 } from 'lucide-react'
@@ -23,6 +26,7 @@ import { platformLabel, qualityMeta, taskProgress, type TaskSnapshot } from '@me
 import { fetchWithCoreAuth } from '../api'
 import { isDesktop, openDownloadFile } from '../native'
 import { PlatformLogo } from './PlatformLogo'
+import { TaskIconButton, TaskIconTooltip } from './TaskIconTooltip'
 
 export type DownloadResult = { status: 'success' | 'fail'; error?: string }
 
@@ -32,6 +36,7 @@ export function isTerminalTask(task: TaskSnapshot): boolean {
 
 function taskStatusLabel(status: TaskSnapshot['status']): string {
   const labels: Record<TaskSnapshot['status'], string> = {
+    queued: '已加入队列',
     waiting: '等待中',
     downloading: '下载中',
     merging: '合并中',
@@ -66,7 +71,16 @@ function formatDuration(seconds: number): string {
   return rest === 0 ? `约 ${minutes} 分钟` : `约 ${minutes} 分 ${rest} 秒`
 }
 
+function formatElapsedDuration(milliseconds: number): string {
+  if (milliseconds < 1000) return '不足 1 秒'
+  const seconds = Math.round(milliseconds / 1000)
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes} 分 ${seconds % 60} 秒`
+}
+
 function phaseLabel(task: TaskSnapshot): string {
+  if (task.status === 'queued') return '等待手动下载'
   if (task.status === 'waiting') return '等待调度'
   if (task.status === 'merging') return '处理中'
   if (task.phase === 'video') return '下载视频'
@@ -78,55 +92,38 @@ function phaseLabel(task: TaskSnapshot): string {
 
 function detailsStatus(task: TaskSnapshot, downloadResult?: DownloadResult): string {
   if (downloadResult?.status === 'success') return '下载成功'
-  if (downloadResult?.status === 'fail') return '保存失败'
+  if (downloadResult?.status === 'fail') return '文件操作失败'
   return taskStatusLabel(task.status)
 }
 
-export function TaskStatusIndicator({ status, error }: { status: TaskSnapshot['status']; error?: string }) {
+export function TaskStatusIndicator({ status, error, focusable = true }: { status: TaskSnapshot['status']; error?: string; focusable?: boolean }) {
   const label = error ? `${taskStatusLabel(status)}：${error}` : taskStatusLabel(status)
-  const [tooltip, setTooltip] = useState<{ top: number; left: number; below: boolean } | null>(null)
-  useEffect(() => {
-    if (tooltip === null) return
-    const dismiss = () => setTooltip(null)
-    window.addEventListener('scroll', dismiss, true)
-    window.addEventListener('resize', dismiss)
-    return () => { window.removeEventListener('scroll', dismiss, true); window.removeEventListener('resize', dismiss) }
-  }, [tooltip])
-  const showTooltip = (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect()
-    const width = Math.min(260, window.innerWidth - 24)
-    setTooltip({ top: rect.top < 100 ? rect.bottom + 8 : rect.top - 8, left: Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)), below: rect.top < 100 })
-  }
-  return <span
-    className={`task-indicator ${status} ${error ? 'task-error-indicator' : ''}`}
-    aria-label={label}
-    tabIndex={error ? 0 : undefined}
-    {...(error ? {
-      onMouseEnter: (event) => showTooltip(event.currentTarget),
-      onMouseLeave: () => setTooltip(null),
-      onFocus: (event) => showTooltip(event.currentTarget),
-      onBlur: () => setTooltip(null),
-    } : { title: label })}
-  >
-    {status === 'success' ? <Check /> : status === 'fail' || status === 'stopped' ? <X /> : status === 'waiting' ? <Clock3 /> : <LoaderCircle className="spin" />}
-    {error && tooltip && createPortal(<span className="task-error-tooltip" role="tooltip" style={{ top: tooltip.top, left: tooltip.left, transform: tooltip.below ? undefined : 'translateY(-100%)' }}>{label}</span>, document.body)}
-  </span>
+  return <TaskIconTooltip label={label}>
+    <span className={`task-indicator ${status}`} role="img" aria-label={label} tabIndex={focusable ? 0 : undefined}>
+      {status === 'success' ? <Check /> : status === 'fail' || status === 'stopped' ? <X /> : status === 'waiting' || status === 'queued' ? <Clock3 /> : <LoaderCircle className="spin" />}
+    </span>
+  </TaskIconTooltip>
 }
 
 export interface TaskRowProps {
   task: TaskSnapshot
   variant?: 'compact' | 'detail'
+  selected?: boolean
+  isHistory?: boolean
+  onSelect?: (id: string) => void
   downloadDirectory?: string
   downloadResult?: DownloadResult
   onCancel?: (id: string) => void | Promise<void>
+  onStart?: (id: string) => void | Promise<void>
   onRetry?: (id: string) => void | Promise<void>
   onRemove?: (id: string) => void | Promise<void>
+  removeLabel?: string
   onDownloadResult?: (id: string, result: DownloadResult) => void
 }
 
-export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadResult, onCancel, onRetry, onRemove, onDownloadResult }: TaskRowProps) {
+export function TaskRow({ task, variant = 'detail', selected = false, isHistory = false, onSelect, downloadDirectory, downloadResult, onCancel, onStart, onRetry, onRemove, removeLabel = '删除历史任务', onDownloadResult }: TaskRowProps) {
   const [isSaving, setIsSaving] = useState(false)
-  const [busyAction, setBusyAction] = useState<'cancel' | 'retry' | 'remove' | null>(null)
+  const [busyAction, setBusyAction] = useState<'cancel' | 'start' | 'retry' | 'remove' | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
@@ -139,7 +136,7 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showDetails])
 
-  async function runAction(action: 'cancel' | 'retry' | 'remove', handler: (id: string) => void | Promise<void>) {
+  async function runAction(action: 'cancel' | 'start' | 'retry' | 'remove', handler: (id: string) => void | Promise<void>) {
     if (busyAction !== null) return
     setBusyAction(action)
     try {
@@ -160,19 +157,18 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
       const downloads: Array<{ fileName: string; blob: Blob }> = []
       for (const target of targets) {
         const kind = 'legacy' in target ? undefined : target.kind
-        if (isDesktop() && downloadDirectory) {
-          try {
-            await openDownloadFile(downloadDirectory, target.fileName)
-            continue
-          } catch {
-            // The core may have a newer resolved save path than the UI health
-            // snapshot. Fall back to the authenticated file endpoint below.
-          }
+        if (isHistory && isDesktop()) {
+          const directory = task.outputDir ?? downloadDirectory
+          if (!directory) throw new Error('找不到文件保存目录，请检查下载设置。')
+          await openDownloadFile(directory, target.fileName)
+          continue
         }
         const response = await fetchWithCoreAuth(taskFileUrl(task.id, kind))
         if (!response.ok) {
-          const data = await response.json().catch(() => null) as { error?: { message?: string } } | null
-          throw new Error(data?.error?.message ?? `HTTP ${response.status}`)
+          const data = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+          throw new Error(response.status === 404 && data?.error?.code === 'FILE_NOT_FOUND'
+            ? '文件不存在，请点击重新下载。'
+            : data?.error?.message ?? `HTTP ${response.status}`)
         }
         downloads.push({ fileName: target.fileName, blob: await response.blob() })
       }
@@ -188,7 +184,7 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
       }
       onDownloadResult?.(task.id, { status: 'success' })
     } catch (error) {
-      onDownloadResult?.(task.id, { status: 'fail', error: error instanceof Error ? error.message : '保存失败' })
+      onDownloadResult?.(task.id, { status: 'fail', error: error instanceof Error ? error.message : typeof error === 'string' ? error : '文件操作失败' })
     } finally {
       setIsSaving(false)
     }
@@ -234,6 +230,12 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
     : task.mode === 'video' ? '仅视频' : '视频 + 音频'
   const resolutionLabel = task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)
   const progress = task.status === 'success' ? 1 : taskProgress(task)
+  const averageSpeedBps = task.transferDurationMs && task.downloadedBytes > 0
+    ? Math.round(task.downloadedBytes * 1000 / task.transferDurationMs)
+    : 0
+  const transferSize = task.totalBytes > 0
+    ? `${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}`
+    : `${formatBytes(task.downloadedBytes)} 已下载`
   const remainingSeconds = task.speedBps > 0 && task.totalBytes > task.downloadedBytes
     ? (task.totalBytes - task.downloadedBytes) / task.speedBps
     : 0
@@ -245,7 +247,7 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
   // with a failure X in the task list.
   const indicatorStatus = task.status
   const resourceLabel = [modeLabel, resolutionLabel].filter(Boolean).join(' · ')
-  const statusLabel = task.status === 'success' && downloadResult === undefined ? '文件就绪' : detailsStatus(task, downloadResult)
+  const statusLabel = detailsStatus(task, downloadResult)
   const statusClass = downloadResult?.status === 'fail' ? 'fail' : task.status
   const errorDetails = downloadResult?.status === 'fail' ? downloadResult.error : task.error
   const sourceLink = task.input || task.sourceId || task.bvid || '未提供'
@@ -253,10 +255,24 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
   const bundledOutput = task.mode === 'video+audio' && outputFiles.length > 1
   const downloadLabel = bundledOutput ? '视频和音频' : outputFiles[0]?.kind === 'audio' ? '音频' : outputFiles[0]?.kind === 'image' ? '图片' : '视频'
   return (
-    <div className={variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''}`}>
-      <span className={`task-platform-icon ${task.platform}`} title={platformLabel[task.platform]}>
-        {task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}
-      </span>
+    <div
+      className={`${variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''}`} ${selected ? 'is-selected' : ''}`}
+      role="listitem"
+      tabIndex={onSelect ? 0 : undefined}
+      aria-current={selected ? 'true' : undefined}
+      aria-label={title}
+      onClick={(event) => { if (event.currentTarget.contains(event.target as Node)) onSelect?.(task.id) }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+        event.preventDefault()
+        onSelect?.(task.id)
+      }}
+    >
+      <TaskIconTooltip label={platformLabel[task.platform]}>
+        <span className={`task-platform-icon ${task.platform}`} role="img" aria-label={platformLabel[task.platform]} tabIndex={0}>
+          {task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}
+        </span>
+      </TaskIconTooltip>
       <span className="task-title">
         <strong title={title}>{title}</strong>
         <span className="task-meta">
@@ -264,16 +280,19 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
           {resolutionLabel !== '' && <span className="task-resolution-tag" title={resolutionLabel}>{resolutionLabel}</span>}
         </span>
       </span>
+      {!terminal && task.status !== 'queued' && onCancel !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'cancel' ? '正在停止任务' : '停止任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <CircleStop />}</TaskIconButton>}
       {variant === 'detail' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
-      {variant === 'detail' && task.status === 'success' && outputFiles.length > 0 && (
-        <button className="task-action" type="button" title={isSaving ? (isDesktop() ? '正在打开文件…' : '正在保存文件…') : `${isDesktop() ? '打开' : '保存'}${downloadLabel}${bundledOutput ? '文件' : `：${outputFiles[0]?.fileName ?? ''}`}`} aria-label={`${isDesktop() ? '打开' : '保存'}${downloadLabel}`} onClick={() => void downloadFile()} disabled={isSaving || busyAction !== null} aria-busy={isSaving}>
-          <ArrowDownToLine />
-        </button>
-      )}
-      {!terminal && onCancel !== undefined && <button className="task-action" type="button" title={busyAction === 'cancel' ? '正在取消' : '取消任务'} aria-label={busyAction === 'cancel' ? '正在取消任务' : '取消任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <X />}</button>}
-      {terminal && task.status !== 'success' && onRetry !== undefined && <button className="task-action" type="button" title={busyAction === 'retry' ? '正在加入队列' : '重试任务'} aria-label={busyAction === 'retry' ? '正在重试任务' : '重试任务'} onClick={() => void runAction('retry', onRetry)} disabled={busyAction !== null} aria-busy={busyAction === 'retry'}>{busyAction === 'retry' ? <LoaderCircle className="spin" /> : <RotateCcw />}</button>}
-      {variant === 'detail' && <button className="task-action" type="button" title="更多任务信息" aria-label="更多任务信息" onClick={() => setShowDetails(true)}><MoreHorizontal /></button>}
-      {terminal && onRemove !== undefined && <button className="task-action" type="button" title={busyAction === 'remove' ? '正在删除' : '删除历史任务'} aria-label={busyAction === 'remove' ? '正在删除历史任务' : '删除历史任务'} onClick={() => void runAction('remove', onRemove)} disabled={busyAction !== null} aria-busy={busyAction === 'remove'}>{busyAction === 'remove' ? <LoaderCircle className="spin" /> : <Trash2 />}</button>}
+      <span className="task-actions">
+        {task.status === 'queued' && onStart !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'start' ? '正在启动下载' : `下载${task.mode === 'video+audio' ? '视频和音频' : task.mode === 'image' ? '图片' : task.mode === 'audio' ? '音频' : '视频'}文件`} onClick={() => void runAction('start', onStart)} disabled={busyAction !== null} aria-busy={busyAction === 'start'}>{busyAction === 'start' ? <LoaderCircle className="spin" /> : <ArrowDownToLine />}</TaskIconButton>}
+        {variant === 'detail' && task.status === 'success' && outputFiles.length > 0 && (
+          <TaskIconButton className="task-action" type="button" label={isSaving ? (isHistory && isDesktop() ? '正在打开文件…' : '正在下载文件…') : `${isHistory && isDesktop() ? '打开' : '下载'}${downloadLabel}文件`} onClick={() => void downloadFile()} disabled={isSaving || busyAction !== null} aria-busy={isSaving}>
+            {isHistory ? (isDesktop() ? <FolderOpen /> : <FolderDown />) : <ArrowDownToLine />}
+          </TaskIconButton>
+        )}
+        {terminal && onRetry !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'retry' ? '正在重新下载' : '重新下载'} onClick={() => void runAction('retry', onRetry)} disabled={busyAction !== null} aria-busy={busyAction === 'retry'}>{busyAction === 'retry' ? <LoaderCircle className="spin" /> : <RotateCcw />}</TaskIconButton>}
+        {variant === 'detail' && <TaskIconButton className="task-action" type="button" label="更多任务信息" onClick={() => setShowDetails(true)}><MoreHorizontal /></TaskIconButton>}
+        {(terminal || task.status === 'queued' || variant === 'detail') && onRemove !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'remove' ? '正在删除任务' : removeLabel} onClick={() => void runAction('remove', onRemove)} disabled={busyAction !== null} aria-busy={busyAction === 'remove'}>{busyAction === 'remove' ? <LoaderCircle className="spin" /> : <Trash2 />}</TaskIconButton>}
+      </span>
       {showDetails && createPortal(<div className="modal-backdrop task-details-backdrop" role="presentation" onClick={() => setShowDetails(false)}>
         <section className="task-details-modal" role="dialog" aria-modal="true" aria-labelledby={`task-details-title-${task.id}`} onClick={(event) => event.stopPropagation()}>
           <div className="modal-heading task-details-heading">
@@ -308,10 +327,12 @@ export function TaskRow({ task, variant = 'detail', downloadDirectory, downloadR
               <section className="task-detail-file-item"><span className="task-detail-inline-icon large"><HardDrive /></span><div><strong className="task-detail-label">文件大小</strong><span className="task-detail-file-value">{task.totalBytes > 0 ? formatBytes(task.totalBytes) : '未知'}</span></div></section>
               <section className="task-detail-file-item"><span className="task-detail-inline-icon large"><CalendarClock /></span><div><strong className="task-detail-label">更新时间</strong><span className="task-detail-file-value" title={savedAtLabel}>{savedAtLabel || '未知'}</span></div></section>
             </div>
-            {!terminal && <section className="task-detail-section task-detail-progress">
-              <div className="task-detail-section-heading"><span><Gauge /></span><div><small>{phaseLabel(task)}</small><strong>{task.totalBytes > 0 ? `${Math.round(progress * 100)}%` : '下载进度'}</strong></div><span className="task-detail-progress-size">{task.totalBytes > 0 ? `${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}` : `${formatBytes(task.downloadedBytes)} 已下载`}</span></div>
-              <span className={`task-progress-bar ${task.totalBytes <= 0 ? 'indeterminate' : ''}`}><span style={{ width: `${Math.round(progress * 100)}%` }} /></span>
-              <small className="task-detail-progress-meta">{task.speedBps > 0 ? `${formatBytes(task.speedBps)}/s` : '正在准备下载'}{remainingSeconds > 0 ? ` · ${formatDuration(remainingSeconds)}` : ''}</small>
+            {task.status !== 'queued' && <section className="task-detail-section task-detail-progress">
+              <div className="task-detail-section-heading"><span><Gauge /></span><div><small>{terminal ? '下载记录' : phaseLabel(task)}</small><strong>{task.status === 'success' || task.totalBytes > 0 ? `${Math.round(progress * 100)}%` : terminal ? '总进度未知' : '下载进度'}</strong></div><span className="task-detail-progress-size">{transferSize}</span></div>
+              {(task.status === 'success' || task.totalBytes > 0 || !terminal) && <span className={`task-progress-bar ${task.totalBytes <= 0 && !terminal ? 'indeterminate' : ''}`}><span style={{ width: `${Math.round(progress * 100)}%` }} /></span>}
+              <small className="task-detail-progress-meta">{terminal
+                ? `平均速率 ${averageSpeedBps > 0 ? `${formatBytes(averageSpeedBps)}/s` : '无记录'} · 传输耗时 ${task.transferDurationMs ? formatElapsedDuration(task.transferDurationMs) : '无记录'}`
+                : `${task.speedBps > 0 ? `${formatBytes(task.speedBps)}/s` : '正在准备下载'}${remainingSeconds > 0 ? ` · ${formatDuration(remainingSeconds)}` : ''}`}</small>
             </section>}
             {errorDetails && <section className="task-detail-error"><CircleAlert /><div><strong>错误原因</strong><p>{errorDetails}</p></div></section>}
           </div>

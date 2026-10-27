@@ -10,7 +10,7 @@
 >
 > Turn a link into a clear, trackable download task, then keep the result on your own device.
 
-[简体中文](./README.zh.md) · [Technical design](./docs/tech-design.md) · [Technology choices](./docs/technology-selection.md)
+[简体中文](./README.zh.md) · [Technical design](./docs/TECH-DESIGN.md) · [Technology choices](./docs/technology-selection.md)
 
 MediaGrab brings link parsing, media selection, downloads, and task history into one focused desktop workspace. The project began as an effort to make saving authorized media less scattered and more understandable: one place to see what a link contains, what can actually be downloaded, and what happened to each task.
 
@@ -40,6 +40,14 @@ The project is evolving from a Bilibili-focused prototype into a platform-adapte
 | Media tools | FFmpeg and yt-dlp | Handle media processing and selected platform extraction workflows. |
 
 The current repository is a working desktop application whose business core is Node.js/Fastify. Tauri provides the desktop shell and Rust-native integration. Release tooling now prepares the Node core and stages checksum-verified FFmpeg/yt-dlp resources; see [Build for desktop](#build-for-desktop) and the [media tools release plan](./docs/media-tools.md).
+
+## Platform Cookies
+
+Under **App Settings**, you can paste your own Bilibili, Douyin, Xiaohongshu, or YouTube Cookie. Douyin, Xiaohongshu, and YouTube accept a Cookie header or a Netscape-format export. YouTube Cookies are passed to yt-dlp when extracting resources that require sign-in; they do **not** guarantee higher-bitrate formats. The end-to-end YouTube download flow has not yet been verified with a real account Cookie.
+
+Credentials are encrypted locally and never returned by the Cookie status API. The pasted text stays in the textarea during the current app session after saving; after restart the textarea is blank, while the stored credential remains usable. You can clear it explicitly. Bilibili credentials are also cleared when verification definitively reports a logged-out session. An extractor failure alone does not prove a Douyin, Xiaohongshu, or YouTube Cookie has expired, so those credentials are not automatically cleared on such failures. Bilibili account details are hidden by default; multiple saved accounts remain available under **Manage saved accounts**.
+
+In App Settings, the download directory, yt-dlp path, and default output each save automatically when their field loses focus. The per-platform **Save / Clear** buttons manage only that platform's Cookie.
 
 ## Build for desktop
 
@@ -84,11 +92,11 @@ MediaGrab is under active development. The macOS shell and bundled Node core bui
 
 ## Documentation
 
-- [Product requirements](./docs/prd.md)
-- [Technical design](./docs/tech-design.md)
+- [Product requirements](./docs/PRD.md)
+- [Technical design](./docs/TECH-DESIGN.md)
 - [Technology selection, explained](./docs/technology-selection.md)
-- [Roadmap](./docs/roadmap.md)
-- [Risk and responsible use](./docs/risk-control.md)
+- [Roadmap](./docs/ROADMAP.md)
+- [Risk and responsible use](./docs/RISK-CONTROL.md)
 - [Project structure and development conventions](./docs/project-structure-and-conventions.md)
 
 ## Responsible use

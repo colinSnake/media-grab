@@ -59,6 +59,17 @@ describe('AccountService', () => {
     db.close()
   })
 
+  it('uses the encrypted vault for YouTube Cookie and only exposes configuration status', () => {
+    const { db, vault, service } = setup(NAV_LOGGED_IN)
+    service.saveCookie('youtube', 'SID=secret')
+    expect(service.cookieConfigured('youtube')).toBe(true)
+    expect(service.cookie('youtube')).toContain('SID\tsecret')
+    expect(vault.get('platform:youtube')).toContain('SID\tsecret')
+    service.clearCookie('youtube')
+    expect(service.cookieConfigured('youtube')).toBe(false)
+    db.close()
+  })
+
   it('导入并验证成功，只返回脱敏账号摘要且请求合并设备 Cookie', async () => {
     const { db, fake, service } = setup(NAV_LOGGED_IN)
     const result = await service.importBili('我的 B站', 'SESSDATA=secret; bili_jct=csrf; ignored=x')
@@ -78,6 +89,7 @@ describe('AccountService', () => {
     await expect(service.activate(second.id)).rejects.toMatchObject({ code: 'ACCOUNT_NOT_LOGGED_IN' })
     expect(repo.get(first.id)?.active).toBe(true)
     expect(repo.get(second.id)?.active).toBe(false)
+    expect(vault.get(second.id)).toBeNull()
     db.close()
   })
 

@@ -1,18 +1,17 @@
 import { FileVideo2, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { platformLabel, qualityMeta, type TaskSnapshot } from '@mediagrab/shared'
-import { TaskStatusIndicator, type DownloadResult } from './TaskRow'
+import { TaskStatusIndicator } from './TaskRow'
 import { PlatformLogo } from './PlatformLogo'
 
 interface TaskSearchDialogProps {
   open: boolean
   tasks: TaskSnapshot[]
-  downloadResults: Record<string, DownloadResult>
   onClose: () => void
   onSelect: (task: TaskSnapshot) => void
 }
 
-export function TaskSearchDialog({ open, tasks, downloadResults, onClose, onSelect }: TaskSearchDialogProps) {
+export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchDialogProps) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -62,11 +61,7 @@ export function TaskSearchDialog({ open, tasks, downloadResults, onClose, onSele
                   {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag" title={task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}>{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
                 </span>
               </span>
-              {(task.status !== 'success' || downloadResults[task.id] !== undefined) &&
-                <TaskStatusIndicator
-                  status={task.status === 'success' ? downloadResults[task.id]?.status ?? task.status : task.status}
-                  error={task.status === 'success' ? downloadResults[task.id]?.error : task.error}
-                />}
+              <TaskStatusIndicator focusable={false} status={task.status} error={task.error} />
             </button>
           ))}
         </div>

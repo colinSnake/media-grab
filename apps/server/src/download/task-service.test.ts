@@ -2,8 +2,8 @@ import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { execFileSync, spawnSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
-import type { MediaParseResult, TaskSnapshot } from '@mediagrab/shared'
+import { describe, expect, it, vi } from 'vitest'
+import { taskSnapshotSchema, type MediaParseResult, type TaskSnapshot } from '@mediagrab/shared'
 import { TaskService } from './task-service.js'
 
 class FakeTaskRepository {
@@ -51,6 +51,110 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 describe('TaskService task identity', () => {
+  it('records transfer statistics only after an explicit start and clears them on retry', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-download-stats-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/stats', id: 'stats', title: 'stats', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'video', kind: 'video', combined: false, label: '720P', url: 'https://example.com/stream', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: false, image: false, download: true },
+    }
+    let releaseRetry!: () => void
+    const retryGate = new Promise<void>((resolve) => { releaseRetry = resolve })
+    const fetchImpl = vi.fn(async () => {
+      if (fetchImpl.mock.calls.length > 1) await retryGate
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 12))
+          controller.enqueue(new Uint8Array([1, 2, 3]))
+          controller.close()
+        },
+      })
+      return new Response(body, { headers: { 'content-length': '3' } })
+    })
+    const options = {
+      repo: repo as never, platforms: {} as never, media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, downloadPoolSize: 1 }) } as never,
+      dataDir: root, fetchImpl: fetchImpl as typeof fetch,
+    }
+    try {
+      const service = new TaskService(options)
+      const { task } = await service.create({ start: false, platform: 'douyin', input: media.input, mode: 'video', title: media.title })
+      expect(service.get(task.id)).toMatchObject({ status: 'queued', downloadedBytes: 0, transferDurationMs: 0 })
+      expect(fetchImpl).not.toHaveBeenCalled()
+
+      const restarted = new TaskService(options)
+      expect(restarted.get(task.id)?.status).toBe('queued')
+      expect(fetchImpl).not.toHaveBeenCalled()
+      expect(restarted.start(task.id)?.status).toBe('waiting')
+      await waitFor(() => restarted.get(task.id)?.status === 'success')
+      const finished = taskSnapshotSchema.parse(JSON.parse(JSON.stringify(restarted.get(task.id))))
+      expect(finished).toMatchObject({ status: 'success', totalBytes: 3, downloadedBytes: 3, speedBps: 0 })
+      expect(finished.transferDurationMs).toBeGreaterThan(0)
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+      expect(restarted.retry(task.id)).toMatchObject({ status: 'waiting', downloadedBytes: 0, transferDurationMs: 0 })
+      releaseRetry()
+      await waitFor(() => restarted.get(task.id)?.status === 'success')
+      expect(restarted.get(task.id)?.downloadedBytes).toBe(3)
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+    } finally {
+      releaseRetry()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('retains partial transfer statistics when a stream fails', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-partial-stats-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/partial', id: 'partial', title: 'partial', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'video', kind: 'video', combined: false, label: '720P', url: 'https://example.com/stream', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: false, image: false, download: true },
+    }
+    const taskService = new TaskService({
+      repo: repo as never, platforms: {} as never, media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]))
+          setTimeout(() => controller.error(new Error('connection lost')), 12)
+        },
+      }), { headers: { 'content-length': '6' } })) as typeof fetch,
+    })
+    try {
+      const { task } = await taskService.create({ start: false, platform: 'douyin', input: media.input, mode: 'video', title: media.title })
+      taskService.start(task.id)
+      await waitFor(() => taskService.get(task.id)?.status === 'fail')
+      expect(taskService.get(task.id)).toMatchObject({ status: 'fail', downloadedBytes: 3, totalBytes: 6, speedBps: 0 })
+      expect(taskService.get(task.id)?.transferDurationMs).toBeGreaterThan(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps an explicitly queued task idle until start, including after a restart', async () => {
+    const repo = new FakeTaskRepository()
+    const options = {
+      repo: repo as never,
+      platforms: {} as never,
+      media: {} as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: './download', downloadPoolSize: 1 }) } as never,
+      fetchImpl: fetch,
+    }
+    const taskService = new TaskService(options)
+    const { task } = await taskService.create({ start: false, platform: 'bilibili', bvid: 'BV1GJ411x7h7', cid: 1, mode: 'video', title: 'queued' })
+    expect(taskService.get(task.id)?.status).toBe('queued')
+    await expect(taskService.create({ start: false, platform: 'bilibili', bvid: 'BV1GJ411x7h7', cid: 1, mode: 'video', title: 'queued' })).resolves.toMatchObject({ deduplicated: true })
+
+    const restarted = new TaskService(options)
+    expect(restarted.get(task.id)?.status).toBe('queued')
+    expect(restarted.start(task.id)?.status).toBe('waiting')
+    expect(restarted.start(task.id)?.status).not.toBe('queued')
+    expect(restarted.start('missing')).toBeNull()
+  })
+
   it('rejects a task whose declared platform conflicts with a recognized URL', async () => {
     const taskService = service({ media: {
       platform: 'douyin', input: 'https://www.douyin.com/video/1', id: '1', title: 'test', authorName: '', cover: '', durationSec: 1,
@@ -137,6 +241,41 @@ describe('TaskService task identity', () => {
     expect(result.task.qualityLabel).toBe('720P')
   })
 
+  it('keeps a selected public Douyin format or fails instead of switching to a yt-dlp format', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-format-switch-'))
+    const repo = new FakeTaskRepository()
+    const selected: MediaParseResult['streams'][number] = {
+      id: 'douyin-public:chosen', kind: 'video', combined: true, label: '1080P',
+      url: 'https://v3.douyinvod.com/chosen.mp4', backupUrls: [], available: true, reason: '',
+    }
+    const parsed: MediaParseResult = {
+      platform: 'douyin', input: 'https://www.douyin.com/video/123', id: '123', title: 'clip', authorName: '', cover: '', durationSec: 1,
+      streams: [selected], itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    }
+    const taskService = new TaskService({
+      repo: repo as never, platforms: {} as never,
+      media: { parse: async () => parsed, streamsForDownload: async () => [{ ...selected, id: 'yt-dlp-other', label: '720P' }] } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: (async () => { throw new Error('Unexpected download') }) as typeof fetch,
+    })
+    try {
+      await expect(taskService.create({ platform: 'douyin', input: parsed.input, streamId: 'douyin-public:missing', mode: 'video', title: '' }))
+        .rejects.toMatchObject({ code: 'SELECTED_STREAM_UNAVAILABLE' })
+      await expect(taskService.create({ platform: 'douyin', input: parsed.input, streamId: 'a'.repeat(32), mode: 'video', title: '' }))
+        .rejects.toMatchObject({ code: 'SELECTED_STREAM_UNAVAILABLE' })
+      const { task } = await taskService.create({ platform: 'douyin', input: parsed.input, streamId: selected.id, mode: 'video', title: '' })
+      await waitFor(() => taskService.get(task.id)?.status === 'fail')
+      expect(taskService.get(task.id)).toMatchObject({ streamId: selected.id, error: '所选抖音清晰度已变化，请重新解析并创建任务' })
+
+      const audio = await taskService.create({ platform: 'douyin', input: parsed.input, streamId: selected.id, mode: 'audio', title: '' })
+      expect(audio.task.streamId).toBe(selected.id)
+      await waitFor(() => taskService.get(audio.task.id)?.status === 'fail')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('does not accept photo mode on a video-only platform', async () => {
     const taskService = service()
     await expect(taskService.create({ platform: 'bilibili', bvid: 'BV1GJ411x7h7', cid: 1, mode: 'image', title: '' })).rejects.toMatchObject({ code: 'INVALID_TASK' })
@@ -170,8 +309,14 @@ describe('TaskService task identity', () => {
       const secondName = taskService.get(second.task.id)?.fileName ?? ''
       expect(firstName).toBe('album-123-image 1.webp')
       expect(secondName).toBe('album-123-image 2.webp')
+      expect(taskService.get(first.task.id)?.outputDir).toBe(root)
       expect(await readFile(path.join(root, firstName))).toEqual(await readFile(path.join(root, secondName)))
       expect(taskService.get(first.task.id)?.phase).toBe('done')
+      await rm(path.join(root, firstName))
+      const retried = taskService.retry(first.task.id)
+      expect(retried).toMatchObject({ fileName: '', files: [], status: 'waiting' })
+      await waitFor(() => taskService.get(first.task.id)?.status === 'success')
+      expect(await readFile(path.join(root, firstName))).toEqual(await readFile(path.join(root, secondName)))
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -344,6 +489,81 @@ describe('TaskService task identity', () => {
       await waitFor(() => taskService.get(result.task.id)?.status === 'stopped')
       await expect(access(path.join(root, 'tasks', result.task.id))).rejects.toThrow()
       expect(await readdir(root)).not.toContain('.cancel-test.mp4.' + result.task.id + '.tmp')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('deletes a running queue task only after its download has stopped and cleaned up', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-remove-running-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/remove', id: 'remove', title: 'remove-test', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'combined', kind: 'video', combined: true, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    }
+    let notifyFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => { notifyFetchStarted = resolve })
+    const taskService = new TaskService({
+      repo: repo as never,
+      platforms: {} as never,
+      media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: ((_input, init) => new Promise((_resolve, reject) => {
+        notifyFetchStarted()
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })) as typeof fetch,
+    })
+    const events: string[] = []
+    taskService.subscribe((event) => { if ('id' in event) events.push(event.type) })
+
+    try {
+      const { task } = await taskService.create({ platform: 'douyin', input: media.input, mode: 'video', title: media.title })
+      await fetchStarted
+      expect(await taskService.remove(task.id)).toBe(true)
+      expect(taskService.get(task.id)).toBeNull()
+      await expect(access(path.join(root, 'tasks', task.id))).rejects.toThrow()
+      expect(events.at(-1)).toBe('task-removed')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('deletes a queued task without starting its download', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediaGrab-remove-queued-'))
+    const repo = new FakeTaskRepository()
+    const media = (input: string): MediaParseResult => ({
+      platform: 'douyin', input, id: input.split('/').at(-1) ?? '', title: 'queued-test', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'combined', kind: 'video', combined: true, label: '720P', url: 'https://example.com/video', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: true, image: false, download: true },
+    })
+    let notifyFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => { notifyFetchStarted = resolve })
+    let fetchCount = 0
+    const taskService = new TaskService({
+      repo: repo as never,
+      platforms: {} as never,
+      media: { parse: async (input: string) => media(input) } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, audioBitrateKbps: 128, downloadPoolSize: 1 }) } as never,
+      dataDir: root,
+      fetchImpl: ((_input, init) => new Promise((_resolve, reject) => {
+        fetchCount += 1
+        notifyFetchStarted()
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })) as typeof fetch,
+    })
+
+    try {
+      const first = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/first', mode: 'video', title: 'first' })
+      await fetchStarted
+      const second = await taskService.create({ platform: 'douyin', input: 'https://example.com/video/second', mode: 'video', title: 'second' })
+      expect(taskService.get(second.task.id)?.status).toBe('waiting')
+      expect(await taskService.remove(second.task.id)).toBe(true)
+      expect(taskService.get(second.task.id)).toBeNull()
+      expect(fetchCount).toBe(1)
+      await taskService.remove(first.task.id)
+      expect(fetchCount).toBe(1)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

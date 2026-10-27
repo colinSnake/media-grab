@@ -1,12 +1,12 @@
 import { ArrowDownToLine, Check, FileVideo2, Image as ImageIcon, Music2, Play } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { platformLabel, type MediaParseResult, type ParseResult, type Platform, type QualityAvailability } from '@mediagrab/shared'
+import { platformLabel, type PublicMediaParseResult, type ParseResult, type Platform, type QualityAvailability } from '@mediagrab/shared'
 import { apiUrl } from '../api'
 import { PlatformLogo } from './PlatformLogo'
 
 interface MediaPreviewProps {
   parsed: ParseResult | null
-  genericParsed: MediaParseResult | null
+  genericParsed: PublicMediaParseResult | null
   selectedQuality: number | null
   selectedStreamId: string | null
   isParsing: boolean
@@ -28,7 +28,7 @@ function qualityLabel(item: QualityAvailability): string {
 }
 
 function coverProxyUrl(cover: string): string {
-  return apiUrl(`/api/cover?url=${encodeURIComponent(cover)}`)
+  return apiUrl(cover.startsWith('/api/cover?ref=') ? cover : `/api/cover?url=${encodeURIComponent(cover)}`)
 }
 
 function MediaField({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -87,6 +87,7 @@ export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedS
           <MediaCover cover={parsed.cover} durationSec={parsed.durationSec} platform="bilibili" />
           <div className="media-details">
             <div className="media-overview">
+              <div className="resource-label">媒体信息</div>
               <div className="media-fields">
                 <MediaField label="标题" wide><h3 title={parsed.title}>{parsed.title}</h3></MediaField>
                 <MediaField label="编号"><span className="media-id">{parsed.bvid}</span></MediaField>
@@ -109,9 +110,10 @@ export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedS
         </div>
       ) : genericParsed !== null ? (
         <div className="media-result">
-          <MediaCover cover={selectedStream?.kind === 'image' ? selectedStream.url : genericParsed.cover ?? ''} durationSec={genericParsed.durationSec} platform={genericParsed.platform} />
+          <MediaCover cover={selectedStream?.kind === 'image' ? selectedStream.preview ?? genericParsed.cover : genericParsed.cover} durationSec={genericParsed.durationSec} platform={genericParsed.platform} />
           <div className="media-details">
             <div className="media-overview">
+              <div className="resource-label">媒体信息</div>
               <div className="media-fields">
                 <MediaField label="标题" wide><h3 title={genericParsed.title}>{genericParsed.title || '未命名媒体'}</h3></MediaField>
                 <MediaField label="编号"><span className="media-id">{genericParsed.id}</span></MediaField>

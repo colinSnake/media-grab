@@ -18,12 +18,12 @@ function idFromParams(params: unknown): string {
   return id
 }
 
-function taskFilePath(fileName: string, savePath: string): string | undefined {
-  if (fileName === '') return undefined
+function taskFilePath(fileName: string, savePath: string, outputDir?: string): string | undefined {
+  if (fileName === '' || fileName === '.' || fileName === '..' || path.basename(fileName) !== fileName) return undefined
   const candidates = [
-    path.join(resolveDownloadDir(savePath), fileName),
-    // 兼容修复前以 apps/server 为 cwd 生成的文件。
-    path.resolve(process.cwd(), savePath, fileName),
+    path.join(outputDir ?? resolveDownloadDir(savePath), fileName),
+    // 仅旧任务需要兼容修复前以 apps/server 为 cwd 生成的文件。
+    ...(outputDir === undefined ? [path.resolve(process.cwd(), savePath, fileName)] : []),
   ]
   return candidates.find((candidate) => existsSync(candidate))
 }
@@ -38,7 +38,7 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesDeps> = async (app, opts) 
     if (kind !== undefined && !['video', 'audio', 'image'].includes(kind)) throw new ApiError('INVALID_FILE_KIND', '文件类型不正确', 'invalid', 400)
     const fileName = kind === undefined ? task.fileName : task.files.find((file) => file.kind === kind)?.fileName ?? ''
     if (task.status !== 'success' || fileName === '') throw new ApiError('FILE_NOT_READY', '文件尚未准备好', 'notFound', 404)
-    const filePath = taskFilePath(fileName, opts.services.config.get().savePath)
+    const filePath = taskFilePath(fileName, opts.services.config.get().savePath, task.outputDir)
     if (filePath === undefined) throw new ApiError('FILE_NOT_FOUND', '下载文件不存在，请重新下载', 'notFound', 404)
     const encodedName = encodeURIComponent(fileName)
     return reply
@@ -65,6 +65,12 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesDeps> = async (app, opts) 
     return task
   })
 
+  app.post('/api/tasks/:id/start', async (req) => {
+    const task = opts.services.downloads.start(idFromParams(req.params))
+    if (task === null) throw new ApiError('TASK_NOT_FOUND', '任务不存在', 'notFound', 404)
+    return task
+  })
+
   app.post('/api/tasks/:id/retry', async (req) => {
     const task = opts.services.downloads.retry(idFromParams(req.params))
     if (task === null) throw new ApiError('TASK_NOT_FOUND', '任务不存在', 'notFound', 404)
@@ -72,8 +78,8 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesDeps> = async (app, opts) 
   })
 
   app.delete('/api/tasks/:id', async (req, reply) => {
-    const removed = opts.services.downloads.remove(idFromParams(req.params))
-    if (!removed) throw new ApiError('TASK_NOT_REMOVABLE', '任务不存在或仍在运行', 'invalid', 409)
+    const removed = await opts.services.downloads.remove(idFromParams(req.params))
+    if (!removed) throw new ApiError('TASK_NOT_REMOVABLE', '任务不存在', 'notFound', 404)
     return reply.status(204).send()
   })
 

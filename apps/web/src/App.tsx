@@ -32,15 +32,16 @@ import type {
   AudioContainer,
   CookieAccountPlatform,
   DownloadMode,
-  MediaParseResult,
+  PublicMediaParseResult,
   ParseResult,
   Platform,
   TaskSnapshot,
 } from '@mediagrab/shared'
-import { detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
-import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventConnection, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
+import { compareTaskCreation, detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
+import { activateAccount, cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventConnection, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, startTask, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo-small.svg'
 import { TaskRow, type DownloadResult } from './components/TaskRow'
+import { TaskIconTooltip } from './components/TaskIconTooltip'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
 import { isTerminalTask } from './components/TaskRow'
 import { SettingsModal } from './components/SettingsModal'
@@ -52,6 +53,8 @@ import { chooseDownloadDirectory, notifyDownloadFinished } from './native'
 type HistoryPlatformFilter = Platform | 'all'
 type SettingsAccountPlatform = AccountPlatform | 'youtube'
 type CookieAccountState = { cookie: string; configured: boolean; saving: boolean }
+type AutoSaveField = 'savePath' | 'ytDlpPath' | 'defaultDownloadMode'
+type SettingsErrors = Partial<Record<AutoSaveField, string>>
 type WorkspaceView = 'new' | 'queue' | 'history'
 type ThemeMode = 'system' | 'light' | 'dark'
 type CoreConnection = 'connecting' | 'ready' | 'disconnected'
@@ -102,7 +105,7 @@ function uniqueTaskList(items: TaskSnapshot[]): TaskSnapshot[] {
     if (seen.has(key)) return false
     seen.add(key)
     return true
-  })
+  }).sort(compareTaskCreation)
 }
 
 function App() {
@@ -113,17 +116,18 @@ function App() {
   const [historyFilterOpen, setHistoryFilterOpen] = useState(false)
   const historyFilterRef = useRef<HTMLDivElement>(null)
   const [activeView, setActiveView] = useState<WorkspaceView>('new')
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const inputElementRef = useRef<HTMLInputElement>(null)
   const [parsed, setParsed] = useState<ParseResult | null>(null)
-  const [genericParsed, setGenericParsed] = useState<MediaParseResult | null>(null)
+  const [genericParsed, setGenericParsed] = useState<PublicMediaParseResult | null>(null)
   const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null)
   const [selectedQuality, setSelectedQuality] = useState<number | null>(null)
   const [mode, setMode] = useState<DownloadMode>('video+audio')
+  const modeTouchedRef = useRef(false)
   const [audioContainer, setAudioContainer] = useState<AudioContainer>('mp3')
   const [isParsing, setIsParsing] = useState(false)
   const [isEnqueuing, setIsEnqueuing] = useState(false)
-  const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [showConnectionNotice, setShowConnectionNotice] = useState(true)
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -131,6 +135,10 @@ function App() {
   const [coreRetryCount, setCoreRetryCount] = useState(0)
   const [extractor, setExtractor] = useState<ExtractorStatus | null>(null)
   const [config, setConfig] = useState<AppConfig | null>(null)
+  const configRef = useRef<AppConfig | null>(null)
+  const settingsSaveTailRef = useRef<Promise<void>>(Promise.resolve())
+  const settingsErrorsRef = useRef<SettingsErrors>({})
+  const [settingsErrors, setSettingsErrors] = useState<SettingsErrors>({})
   const [draft, setDraft] = useState<AppConfigPatch>({})
   const [showSettings, setShowSettings] = useState(false)
   const [showTaskSearch, setShowTaskSearch] = useState(false)
@@ -155,11 +163,13 @@ function App() {
   const [accountAction, setAccountAction] = useState<{ id: string; action: 'activate' | 'verify' | 'delete' | 'clear-cookie' } | null>(null)
   const [activeAccountPlatform, setActiveAccountPlatform] = useState<SettingsAccountPlatform>('bilibili')
   const [accountCookie, setAccountCookie] = useState('')
+  const lastSavedBiliCookieRef = useRef('')
   const [isSavingAccount, setIsSavingAccount] = useState(false)
-  const cookieAccountPlatforms: CookieAccountPlatform[] = ['douyin', 'xiaohongshu']
+  const cookieAccountPlatforms: CookieAccountPlatform[] = ['douyin', 'xiaohongshu', 'youtube']
   const [cookieAccounts, setCookieAccounts] = useState<Record<CookieAccountPlatform, CookieAccountState>>({
     douyin: { cookie: '', configured: false, saving: false },
     xiaohongshu: { cookie: '', configured: false, saving: false },
+    youtube: { cookie: '', configured: false, saving: false },
   })
   const visibleNotice = coreConnection === 'connecting' && showConnectionNotice
     ? { kind: 'info', text: coreRetryCount === 0 ? '正在启动下载服务，请稍等…' : `正在连接下载服务，第 ${coreRetryCount} 次重试…` }
@@ -245,7 +255,7 @@ function App() {
     if (!isTauriDesktop()) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setShowSettings(false)
+        closeSettings()
         setShowTaskSearch(false)
         return
       }
@@ -285,6 +295,7 @@ function App() {
       await Promise.allSettled([
         getConfig().then((configData) => {
           if (!active) return
+          configRef.current = configData
           setConfig(configData)
           setDraft({
             savePath: configData.savePath,
@@ -292,12 +303,12 @@ function App() {
             defaultDownloadMode: configData.defaultDownloadMode,
             audioContainer: configData.audioContainer,
           })
-          setMode(configData.defaultDownloadMode)
+          if (!modeTouchedRef.current) setMode(configData.defaultDownloadMode)
           setAudioContainer(configData.audioContainer)
         }).catch(() => { initialized = false }),
         getExtractorStatus().then((data) => { if (active) setExtractor(data) }),
         getAccounts().then((data) => { if (active) setAccounts(data.accounts) }),
-        ...(['douyin', 'xiaohongshu'] as const).map((platform) => getCookieStatus(platform).then((data) => {
+        ...(['douyin', 'xiaohongshu', 'youtube'] as const).map((platform) => getCookieStatus(platform).then((data) => {
           if (!active) return
           setCookieAccounts((current) => ({
             ...current,
@@ -386,6 +397,7 @@ function App() {
             setTasks((current) => uniqueTaskList([message.task as TaskSnapshot, ...current.filter((item) => item.id !== message.task?.id)]))
           } else if (message.type === 'task-removed' && message.id !== undefined) {
             setTasks((current) => current.filter((item) => item.id !== message.id))
+            setSelectedTaskId((current) => current === message.id ? null : current)
           }
         } catch {
           // Ignore malformed event payloads; the polling fallback will reconcile state.
@@ -404,14 +416,13 @@ function App() {
   const detectedPlatform = useMemo(() => (input.trim() === '' ? null : detectPlatform(input)), [input])
   const availableQualities = parsed?.qualities.filter((item) => item.available) ?? []
   const chosenQuality = availableQualities.find((item) => item.qn === selectedQuality) ?? availableQualities[0]
-  const visibleTasks = tasks.filter((task) => task.platform === activePlatform)
   const listPlatformTasks = historyPlatform === 'all' ? tasks : tasks.filter((task) => task.platform === historyPlatform)
-  const historyTasks = listPlatformTasks
-    .filter((task) => task.status === 'success' ? downloadResults[task.id] !== undefined : isTerminalTask(task))
-  const queueTasks = listPlatformTasks.filter((task) => !isTerminalTask(task) || (task.status === 'success' && downloadResults[task.id] === undefined))
-  const recentTasks = visibleTasks.slice(0, 3)
+  const historyTasks = listPlatformTasks.filter(isTerminalTask)
+  const queueTasks = listPlatformTasks.filter((task) => !isTerminalTask(task))
+  const recentTasks = tasks.slice(0, 3)
   const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
-  const canEnqueue = parsed !== null || selectedGenericStream?.available === true
+  const hasGenericAudio = selectedGenericStream?.combined === true || genericParsed?.streams.some((stream) => stream.kind === 'audio' && stream.available) === true
+  const canEnqueue = parsed !== null || selectedGenericStream?.available === true && (selectedGenericStream.kind === 'image' || mode === 'video' || hasGenericAudio)
   const viewTitle = activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
 
   useEffect(() => {
@@ -444,6 +455,7 @@ function App() {
         setParsed(null)
         const availableStreams = result.streams.filter((stream) => stream.available)
         setSelectedStreamId((availableStreams.find((stream) => stream.kind === 'video' && (stream.combined || mode === 'video')) ?? availableStreams.find((stream) => stream.kind === 'video') ?? availableStreams[0])?.id ?? null)
+        if (!result.capabilities.audio && result.capabilities.video) setMode('video')
         setNotice({ kind: 'success', text: `${platformLabel[detectedPlatform]}解析完成，已展示可用资源。` })
       }
     } catch (error) {
@@ -475,10 +487,12 @@ function App() {
     try {
       const result = parsed !== null
         ? await createTask({
+            start: false,
             platform: 'bilibili', input: parsed.input, bvid: parsed.bvid, cid: parsed.cid,
             qn: chosenQuality?.qn, qualityLabel: chosenQuality?.label, mode, audioContainer, title: parsed.title,
           })
         : await createTask({
+            start: false,
             platform: genericParsed?.platform === 'unknown' ? undefined : genericParsed?.platform, input: genericParsed?.input,
             streamId: selectedStreamId ?? undefined,
             qualityLabel: selectedGenericStream === undefined
@@ -490,16 +504,19 @@ function App() {
           })
       const task = result.task
       setTasks((current) => uniqueTaskList([task, ...current.filter((item) => item.id !== task.id)]))
+      setSelectedTaskId(task.id)
       setInput('')
       setParsed(null)
       setGenericParsed(null)
       setSelectedStreamId(null)
       setSelectedQuality(null)
+      modeTouchedRef.current = false
+      setMode(configRef.current?.defaultDownloadMode ?? mode)
       if (task.platform !== 'unknown') setHistoryPlatform(task.platform)
-      setActiveView((task.status === 'success' && downloadResults[task.id] !== undefined) || task.status === 'fail' || task.status === 'stopped' ? 'history' : 'queue')
+      setActiveView(isTerminalTask(task) ? 'history' : 'queue')
       setNotice(result.deduplicated
         ? { kind: 'info', text: '相同下载配置已存在，未重复创建任务。' }
-        : { kind: 'success', text: '任务已加入下载队列，完成后可从队列保存到本机。' })
+        : { kind: 'success', text: '任务已加入下载队列，点击下载图标开始下载。' })
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '任务创建失败。' })
     } finally {
@@ -507,21 +524,37 @@ function App() {
     }
   }
 
-  async function saveSettings() {
-    if (isSavingSettings) return
-    setIsSavingSettings(true)
-    try {
-      const next = await patchConfig(draft)
-      setConfig(next)
-      setMode(next.defaultDownloadMode)
-      setAudioContainer(next.audioContainer)
-      setShowSettings(false)
-      setNotice({ kind: 'success', text: '设置已保存。' })
-    } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '设置保存失败。' })
-    } finally {
-      setIsSavingSettings(false)
-    }
+  function saveSettingField(field: AutoSaveField, value: string) {
+    const label = { savePath: '下载目录', ytDlpPath: 'yt-dlp 路径', defaultDownloadMode: '默认输出' }[field]
+    settingsSaveTailRef.current = settingsSaveTailRef.current.then(async () => {
+      if (configRef.current?.[field] === value) return
+      try {
+        const next = await patchConfig({ [field]: value })
+        configRef.current = next
+        setConfig(next)
+        setDraft((current) => current[field] === value ? { ...current, [field]: next[field] } : current)
+        if (field === 'defaultDownloadMode' && !modeTouchedRef.current && parsed === null && genericParsed === null) setMode(next.defaultDownloadMode)
+        const errors = { ...settingsErrorsRef.current }
+        delete errors[field]
+        settingsErrorsRef.current = errors
+        setSettingsErrors(errors)
+        const remainingErrors = Object.values(errors)
+        setNotice(remainingErrors.length > 0
+          ? { kind: 'error', text: remainingErrors.join('；') }
+          : { kind: 'success', text: `${label}已保存。` })
+      } catch (error) {
+        const errors = { ...settingsErrorsRef.current, [field]: `${label}保存失败：${error instanceof Error ? error.message : '请稍后重试。'}` }
+        settingsErrorsRef.current = errors
+        setSettingsErrors(errors)
+        setNotice({ kind: 'error', text: Object.values(errors).join('；') })
+      }
+    })
+  }
+
+  function closeSettings() {
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && focused.closest('.settings-modal')) focused.blur()
+    setShowSettings(false)
   }
 
   async function stopTask(id: string) {
@@ -533,43 +566,71 @@ function App() {
     }
   }
 
+  function showTask(task: TaskSnapshot) {
+    setSelectedTaskId(task.id)
+    setHistoryPlatform(task.platform === 'unknown' ? 'all' : task.platform)
+    setActiveView(isTerminalTask(task) ? 'history' : 'queue')
+    setShowTaskSearch(false)
+  }
+
+  async function beginDownload(id: string) {
+    try {
+      const next = await startTask(id)
+      setTasks((current) => {
+        const existing = current.find((item) => item.id === id)
+        const latest = existing && existing.updatedAt >= next.updatedAt && existing.status !== 'queued' ? existing : next
+        return uniqueTaskList([latest, ...current.filter((item) => item.id !== id)])
+      })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '启动下载失败。' })
+    }
+  }
+
   async function retryDownload(id: string) {
     try {
       const next = await retryTask(id)
       setDownloadResults((current) => { const updated = { ...current }; delete updated[id]; return updated })
       setTasks((current) => uniqueTaskList([next, ...current.filter((item) => item.id !== next.id)]))
+      setSelectedTaskId(id)
       setActiveView('queue')
-      setNotice({ kind: 'success', text: '任务已重新加入下载队列。' })
+      setNotice({ kind: 'success', text: '任务正在重新下载。' })
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '任务重试失败。' })
     }
   }
 
-  async function removeHistoryTask(id: string) {
+  async function removeListedTask(id: string) {
+    const fromQueue = tasks.some((task) => task.id === id && !isTerminalTask(task))
     try {
       await removeTask(id)
       setDownloadResults((current) => { const updated = { ...current }; delete updated[id]; return updated })
       setTasks((current) => current.filter((item) => item.id !== id))
-      setNotice({ kind: 'success', text: '历史任务已删除。' })
+      setSelectedTaskId((current) => current === id ? null : current)
+      setNotice({ kind: 'success', text: fromQueue ? '队列任务已删除。' : '历史任务已删除。' })
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '删除历史任务失败。' })
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : '删除任务失败。' })
     }
   }
 
   function markTaskDownloaded(id: string, result: DownloadResult) {
+    setSelectedTaskId(id)
     setDownloadResults((current) => ({ ...current, [id]: result }))
-    setActiveView('history')
     setNotice(result.status === 'success'
-      ? { kind: 'success', text: isTauriDesktop() ? '已打开已保存文件，任务已移入历史记录。' : '文件下载已开始，任务已移入历史记录。' }
-      : { kind: 'error', text: `下载失败：${result.error ?? '请稍后重试。'}` })
+      ? { kind: 'success', text: isTauriDesktop() ? '已打开已保存文件。' : '文件下载已开始。' }
+      : { kind: 'error', text: `${isTauriDesktop() ? '打开文件' : '下载文件'}失败：${result.error ?? '请稍后重试。'}` })
   }
 
   async function saveBiliAccount() {
+    if (isSavingAccount || accountCookie.trim() === '') return
+    if (accountCookie === lastSavedBiliCookieRef.current) {
+      setNotice({ kind: 'info', text: 'B站 Cookie 已保存。' })
+      return
+    }
     setIsSavingAccount(true)
     try {
       const account = await importBiliAccount(accountCookie)
+      lastSavedBiliCookieRef.current = accountCookie
       setAccounts((current) => [account, ...current.filter((item) => item.id !== account.id).map((item) => ({ ...item, active: false }))])
-      setAccountCookie('')
       setNotice({ kind: 'success', text: `B站账号「${account.displayName || account.label}」已验证并启用。` })
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'B站账号导入失败。' })
@@ -582,7 +643,7 @@ function App() {
     setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: true } }))
     try {
       const result = await saveCookie(platform, cookieAccounts[platform].cookie)
-      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '', configured: result.configured, saving: false } }))
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], configured: result.configured, saving: false } }))
       setNotice({ kind: 'success', text: `${platformLabel[platform]} Cookie 已加密保存。` })
     } catch (error) {
       setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: false } }))
@@ -591,6 +652,10 @@ function App() {
   }
 
   async function clearCookieAccount(platform: CookieAccountPlatform) {
+    if (!cookieAccounts[platform].configured) {
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '' } }))
+      return
+    }
     const actionId = `cookie:${platform}`
     if (accountAction !== null) return
     setAccountAction({ id: actionId, action: 'clear-cookie' })
@@ -627,6 +692,11 @@ function App() {
       setAccounts((current) => current.map((item) => item.id === id ? account : item))
       setNotice({ kind: 'success', text: `「${account.displayName || account.label}」登录状态有效。` })
     } catch (error) {
+      if (error instanceof Error && error.message.includes('B站 Cookie 已失效或未登录')) {
+        setAccountCookie('')
+        lastSavedBiliCookieRef.current = ''
+        setAccounts((current) => current.map((item) => item.id === id ? { ...item, status: 'needs-login', loggedIn: false, vip: false } : item))
+      }
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '账号验证失败。' })
     } finally {
       setAccountAction(null)
@@ -639,11 +709,24 @@ function App() {
     try {
       await removeAccount(id)
       setAccounts((current) => current.filter((item) => item.id !== id))
+      if (accounts.some((account) => account.id === id && account.active)) {
+        setAccountCookie('')
+        lastSavedBiliCookieRef.current = ''
+      }
       setNotice({ kind: 'success', text: '账号及其本地凭据已删除。' })
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '删除账号失败。' })
     } finally {
       setAccountAction(null)
+    }
+  }
+
+  function clearBiliCookie() {
+    const active = accounts.find((account) => account.platform === 'bilibili' && account.active)
+    if (active) void deleteBiliAccount(active.id)
+    else {
+      setAccountCookie('')
+      lastSavedBiliCookieRef.current = ''
     }
   }
 
@@ -742,7 +825,7 @@ function App() {
         </section>}
 
         {activeView === 'new' && <div className="workspace-grid">
-          <MediaPreview parsed={parsed} genericParsed={genericParsed} selectedQuality={selectedQuality} selectedStreamId={selectedStreamId} isParsing={isParsing} onSelectQuality={setSelectedQuality} onSelectStream={setSelectedStreamId} onSelectPage={(page) => void handlePageChange(page)} />
+          <MediaPreview parsed={parsed} genericParsed={genericParsed} selectedQuality={selectedQuality} selectedStreamId={selectedStreamId} isParsing={isParsing} onSelectQuality={setSelectedQuality} onSelectStream={(id) => { setSelectedStreamId(id); const stream = genericParsed?.streams.find((item) => item.id === id); if (stream?.kind === 'video' && !stream.combined && !genericParsed?.streams.some((item) => item.kind === 'audio' && item.available)) setMode('video') }} onSelectPage={(page) => void handlePageChange(page)} />
 
           <div className="right-stack">
             <section className="panel output-panel">
@@ -751,13 +834,13 @@ function App() {
               </div>
               <div className="mode-list">
                 {selectedGenericStream?.kind === 'image' ? <div className="mode-option selected"><span className="mode-choice"><span className="mode-radio" /><span className="mode-copy"><strong>保存图片</strong><small>保留原始图片格式；每次选择一张</small></span></span><span className="mode-check"><Check /></span></div> : modeOptions.map((option) => (
-                  <div key={option.value} className={`mode-option ${mode === option.value ? 'selected' : ''}`}>
-                    <button className="mode-choice" type="button" aria-pressed={mode === option.value} onClick={() => setMode(option.value)}>
+                  <div key={option.value} className={`mode-option ${mode === option.value ? 'selected' : ''} ${genericParsed !== null && !hasGenericAudio && option.value !== 'video' ? 'unavailable' : ''}`}>
+                    <button className="mode-choice" type="button" aria-pressed={mode === option.value} disabled={genericParsed !== null && !hasGenericAudio && option.value !== 'video'} title={genericParsed !== null && !hasGenericAudio && option.value !== 'video' ? '该资源没有可用音轨' : undefined} onClick={() => { modeTouchedRef.current = true; setMode(option.value) }}>
                       <span className="mode-radio" />
                       <span className="mode-copy"><strong>{option.label}</strong>{option.detail !== '' && <small>{option.detail}</small>}</span>
                     </button>
                     {option.value === 'audio' && mode === 'audio' && <span className="segmented" role="group" aria-label="音频格式">
-                      {(['m4a', 'mp3'] as AudioContainer[]).map((container) => <button key={container} type="button" aria-pressed={audioContainer === container} className={audioContainer === container ? 'selected' : ''} onClick={() => { setMode('audio'); setAudioContainer(container) }}>{container.toUpperCase()}</button>)}
+                      {(['m4a', 'mp3'] as AudioContainer[]).map((container) => <button key={container} type="button" aria-pressed={audioContainer === container} className={audioContainer === container ? 'selected' : ''} onClick={() => { modeTouchedRef.current = true; setMode('audio'); setAudioContainer(container) }}>{container.toUpperCase()}</button>)}
                     </span>}
                     <span className="mode-check">{mode === option.value && <Check />}</span>
                   </div>
@@ -768,16 +851,16 @@ function App() {
 
             <section className="panel tasks-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><span className="heading-icon"><ListChecks /></span><div><h2><span className="heading-main">最近任务</span><small className="heading-count">（{visibleTasks.length}项）</small></h2></div></div>
+                <div className="heading-title"><TaskIconTooltip label="最近任务"><span className="heading-icon"><ListChecks /></span></TaskIconTooltip><div><h2><span className="heading-main">最近任务</span><small className="heading-count">（{recentTasks.length}项）</small></h2></div></div>
               </div>
-              {recentTasks.length === 0 ? <div className="tasks-empty"><Clock3 /><span>新任务会显示在这里</span></div> : <div className="task-list">{recentTasks.map((task) => <TaskRow key={task.id} task={task} variant="compact" onCancel={stopTask} onRemove={removeHistoryTask} />)}</div>}
+              {recentTasks.length === 0 ? <div className="tasks-empty"><TaskIconTooltip label="暂无最近任务"><Clock3 /></TaskIconTooltip><span>新任务会显示在这里</span></div> : <div className="task-list" role="list">{recentTasks.map((task) => <TaskRow key={task.id} task={task} variant="compact" selected={selectedTaskId === task.id} onSelect={() => showTask(task)} onStart={beginDownload} onCancel={stopTask} onRemove={removeListedTask} removeLabel={isTerminalTask(task) ? '删除历史任务' : '删除队列任务'} />)}</div>}
             </section>
           </div>
         </div>}
 
         {activeView !== 'new' && <section className="panel task-view-panel">
           <div className="panel-heading">
-            <div className="heading-title"><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span><div><h2><span className="heading-main">{activeView === 'history' ? '历史记录' : '下载队列'}</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
+            <div className="heading-title"><TaskIconTooltip label={activeView === 'history' ? '历史记录' : '下载队列'}><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span></TaskIconTooltip><div><h2><span className="heading-main">{activeView === 'history' ? '历史记录' : '下载队列'}</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
             <div ref={historyFilterRef} className="platform-filter" data-open={historyFilterOpen ? 'true' : 'false'}>
               <button className="platform-filter-trigger" type="button" aria-haspopup="listbox" aria-expanded={historyFilterOpen} onClick={() => setHistoryFilterOpen((open) => !open)}>
                 <span className={`platform-filter-icon ${historyPlatform === 'all' || historyPlatform === 'unknown' ? 'douyin' : historyPlatform}`} aria-hidden="true">{historyPlatform === 'all' || historyPlatform === 'unknown' ? <Globe2 className="platform-filter-globe" /> : <PlatformLogo platform={historyPlatform} />}</span>
@@ -790,7 +873,7 @@ function App() {
               </div>}
             </div>
           </div>
-          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><Clock3 /><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong>{activeView === 'queue' && <span>从新建任务解析内容后加入下载队列。</span>}</div> : <div className="task-view-list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} downloadDirectory={health?.config.resolvedSavePath} downloadResult={downloadResults[task.id]} onCancel={stopTask} onRetry={retryDownload} onRemove={removeHistoryTask} onDownloadResult={markTaskDownloaded} />)}</div>}
+          {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><TaskIconTooltip label={activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}><Clock3 /></TaskIconTooltip><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong><span>{activeView === 'queue' ? '从新建任务解析内容后加入下载队列。' : '下载过的任务会显示在这里，可查看结果或重新下载。'}</span></div> : <div className="task-view-list" role="list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} selected={selectedTaskId === task.id} onSelect={setSelectedTaskId} isHistory={activeView === 'history'} downloadDirectory={health?.config.resolvedSavePath} downloadResult={downloadResults[task.id]} onStart={beginDownload} onCancel={stopTask} onRetry={retryDownload} onRemove={removeListedTask} removeLabel={activeView === 'queue' ? '删除队列任务' : '删除历史任务'} onDownloadResult={markTaskDownloaded} />)}</div>}
         </section>}
       </main>
 
@@ -804,23 +887,22 @@ function App() {
       <TaskSearchDialog
         open={showTaskSearch}
         tasks={tasks}
-        downloadResults={downloadResults}
         onClose={() => setShowTaskSearch(false)}
-        onSelect={(task) => {
-          if (isTerminalTask(task)) setHistoryPlatform(task.platform === 'unknown' ? 'all' : task.platform)
-          setActiveView(isTerminalTask(task) ? 'history' : 'queue')
-          setShowTaskSearch(false)
-        }}
+        onSelect={showTask}
       />
 
       <SettingsModal
         open={showSettings}
         draft={draft}
-        isSavingSettings={isSavingSettings}
+        settingErrors={settingsErrors}
         onDraftChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        onSaveSetting={saveSettingField}
         onPickDownloadDirectory={isTauriDesktop() ? () => {
           void chooseDownloadDirectory().then((directory) => {
-            if (directory !== null) setDraft((current) => ({ ...current, savePath: directory }))
+            if (directory !== null) {
+              setDraft((current) => ({ ...current, savePath: directory }))
+              saveSettingField('savePath', directory)
+            }
           }).catch((error) => setNotice({ kind: 'error', text: error instanceof Error ? error.message : '选择目录失败。' }))
         } : undefined}
         accounts={accounts}
@@ -830,9 +912,9 @@ function App() {
         accountCookie={accountCookie}
         isSavingAccount={isSavingAccount}
         onAccountCookieChange={setAccountCookie}
-        onSave={() => void saveSettings()}
-        onClose={() => setShowSettings(false)}
+        onClose={closeSettings}
         onSaveAccount={() => void saveBiliAccount()}
+        onClearBiliCookie={clearBiliCookie}
         onActivateAccount={(id) => void activateBiliAccount(id)}
         onVerifyAccount={(id) => void verifyBiliAccount(id)}
         onDeleteAccount={(id) => void deleteBiliAccount(id)}

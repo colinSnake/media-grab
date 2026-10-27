@@ -37,6 +37,7 @@ interface TaskServiceOptions {
 
 interface ActiveTask {
   controller: AbortController
+  done?: Promise<void>
 }
 
 function safeName(value: string): string {
@@ -65,6 +66,10 @@ function mediaStreamLabel(stream: MediaStream): string {
   return stream.codecs || stream.mimeType || (stream.kind === 'audio' ? '音频资源' : stream.kind === 'image' ? '图片资源' : '视频资源')
 }
 
+function isPublicDouyinSelection(task: TaskSnapshot): boolean {
+  return task.platform === 'douyin' && (task.streamId?.startsWith('douyin-public:') === true || /^[a-f0-9]{32}$/i.test(task.streamId ?? ''))
+}
+
 function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
   const now = Date.now()
   return {
@@ -75,7 +80,7 @@ function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
     bvid: request.bvid ?? '',
     cid: request.cid ?? 0,
     title: request.title,
-    status: 'waiting',
+    status: request.start === false ? 'queued' : 'waiting',
     phase: 'pending',
     mode: request.mode,
     audioContainer: request.audioContainer,
@@ -86,9 +91,11 @@ function initialSnapshot(request: CreateTaskRequest): TaskSnapshot {
     totalBytes: 0,
     downloadedBytes: 0,
     speedBps: 0,
+    transferDurationMs: 0,
     fileName: '',
     files: [],
     error: '',
+    createdAt: now,
     updatedAt: now,
   }
 }
@@ -173,7 +180,11 @@ export class TaskService {
       task.input = parsed.input
       const requestedStream = parsed.streams.find((stream) => stream.id === task.streamId)
       const selectedKind = task.mode === 'audio' ? 'audio' : task.mode === 'image' ? 'image' : 'video'
-      if (requestedStream?.kind !== selectedKind || requestedStream.available !== true) {
+      const requestedMatches = requestedStream?.kind === selectedKind || task.mode === 'audio' && requestedStream?.kind === 'video' && requestedStream.combined
+      if (isPublicDouyinSelection(task) && (!requestedMatches || requestedStream?.available !== true)) {
+        throw new ApiError('SELECTED_STREAM_UNAVAILABLE', '所选抖音资源已变化，请重新解析并选择清晰度', 'invalid', 409)
+      }
+      if (!requestedMatches || requestedStream?.available !== true) {
         const preferred = task.mode === 'audio'
           ? parsed.streams.find((stream) => stream.kind === 'audio' && stream.available)
             ?? parsed.streams.find((stream) => stream.kind === 'video' && stream.available && (stream.combined || task.platform === 'xiaohongshu'))
@@ -191,14 +202,25 @@ export class TaskService {
       const duplicate = this.#repo.list().find((item) => taskDedupeKey(item) === task.dedupeKey)
       if (duplicate !== undefined) return { task: duplicate, deduplicated: true }
       this.#repo.save(task)
-      const active: ActiveTask = { controller: new AbortController() }
-      this.#active.set(task.id, active)
-      this.#queued.add(task.id)
-      this.pump()
+      if (task.status === 'waiting') this.schedule(task.id)
       return { task, deduplicated: false }
     } finally {
       release()
     }
+  }
+
+  start(id: string): TaskSnapshot | null {
+    const task = this.#repo.get(id)
+    if (task === null || task.status !== 'queued') return task
+    const next = this.save(task, { status: 'waiting' })
+    this.schedule(id)
+    return next
+  }
+
+  private schedule(id: string): void {
+    this.#active.set(id, { controller: new AbortController() })
+    this.#queued.add(id)
+    this.pump()
   }
 
   cancel(id: string): TaskSnapshot | null {
@@ -221,20 +243,19 @@ export class TaskService {
 
   retry(id: string): TaskSnapshot | null {
     const task = this.#repo.get(id)
-    if (task === null || !isTerminal(task.status) || task.status === 'success') return task
-    const next = this.save(task, { status: 'waiting', phase: 'pending', error: '', downloadedBytes: 0, totalBytes: 0, speedBps: 0 })
-    const active: ActiveTask = { controller: new AbortController() }
-    this.#active.set(id, active)
-    this.#queued.add(id)
-    this.pump()
+    if (task === null || !isTerminal(task.status)) return task
+    const next = this.save(task, { status: 'waiting', phase: 'pending', error: '', fileName: '', files: [], outputDir: undefined, downloadedBytes: 0, totalBytes: 0, speedBps: 0, transferDurationMs: 0 })
+    this.schedule(id)
     return next
   }
 
-  remove(id: string): boolean {
+  async remove(id: string): Promise<boolean> {
     const task = this.#repo.get(id)
     if (task === null) return false
     const matches = this.#repo.list().filter((item) => taskDedupeKey(item) === taskDedupeKey(task))
-    if (matches.some((item) => this.#active.has(item.id))) return false
+    const running = matches.map((item) => this.#active.get(item.id)?.done).filter((done): done is Promise<void> => done !== undefined)
+    for (const match of matches) this.cancel(match.id)
+    await Promise.all(running)
     for (const match of matches) {
       this.#repo.delete(match.id)
       this.emit({ type: 'task-removed', id: match.id })
@@ -266,7 +287,7 @@ export class TaskService {
       }
 
       this.#runningCount += 1
-      void this.run(id, active.controller)
+      active.done = this.run(id, active.controller)
         .catch((error: unknown) => {
           this.#logger.error({ error: error instanceof Error ? error.message : String(error) }, '下载任务异常')
         })
@@ -290,7 +311,7 @@ export class TaskService {
   recoverInterrupted(): void {
     for (const task of this.#repo.list()) {
       if (task.status === 'waiting' || task.status === 'downloading' || task.status === 'merging') {
-        this.save(task, { status: 'fail', error: '应用上次退出时任务未完成，可点击重试' })
+        this.save(task, { status: 'fail', speedBps: 0, error: '应用上次退出时任务未完成，可点击重试' })
       }
     }
   }
@@ -326,6 +347,9 @@ export class TaskService {
       const platform = task.platform
       const streamId = task.streamId
       const streams = await this.loadStreams(task, controller)
+      if (isPublicDouyinSelection(task) && !streams.some((stream) => stream.id === streamId && stream.available)) {
+        throw new ApiError('SELECTED_STREAM_UNAVAILABLE', '所选抖音清晰度已变化，请重新解析并创建任务', 'invalid', 409)
+      }
       const audio = task.mode === 'video' || task.mode === 'image' ? undefined : this.pickGenericAudio(streams, task)
       const video = task.mode === 'image' ? undefined : task.mode === 'audio'
         ? audio === undefined ? streams.find((stream) => stream.id === streamId && stream.kind === 'video' && stream.available && (stream.combined || platform === 'xiaohongshu'))
@@ -444,11 +468,11 @@ export class TaskService {
         outputTemps.splice(outputTemps.indexOf(temp), 1)
       }
       const saved = this.#repo.get(id) ?? task
-      this.save(saved, { status: 'success', phase: 'done', fileName: files[0]?.fileName ?? '', files, error: '' })
+      this.save(saved, { status: 'success', phase: 'done', speedBps: 0, fileName: files[0]?.fileName ?? '', files, outputDir: targetDir, error: '' })
     } catch (error) {
       const current = this.#repo.get(id) ?? task
-      if (controller.signal.aborted) this.save(current, { status: 'stopped', error: '任务已取消' })
-      else this.save(current, { status: 'fail', error: error instanceof Error ? error.message : String(error) })
+      if (controller.signal.aborted) this.save(current, { status: 'stopped', speedBps: 0, error: '任务已取消' })
+      else this.save(current, { status: 'fail', speedBps: 0, error: error instanceof Error ? error.message : String(error) })
     } finally {
       await rm(workDir, { recursive: true, force: true })
       for (const temp of outputTemps) await rm(temp, { force: true })
@@ -527,7 +551,10 @@ export class TaskService {
       throw new ApiError('INVALID_IMAGE_RESPONSE', '图片资源返回了非图片内容', 'network', 502)
     }
     const total = Number(response.headers.get('content-length') ?? 0)
-    const phaseBaseBytes = this.#repo.get(task.id)?.totalBytes ?? 0
+    const beforePhase = this.#repo.get(task.id)
+    const phaseBaseBytes = beforePhase?.totalBytes ?? 0
+    const phaseBaseDownloaded = beforePhase?.downloadedBytes ?? 0
+    const phaseBaseDurationMs = beforePhase?.transferDurationMs ?? 0
     const file = createWriteStream(target)
     const reader = response.body.getReader()
     let downloaded = 0
@@ -540,8 +567,15 @@ export class TaskService {
         if (!file.write(next.value)) await once(file, 'drain')
         const current = this.#repo.get(task.id)
         if (current !== null) {
-          const totalBytes = total > 0 ? phaseBaseBytes + total : 0
-          this.save(current, { totalBytes, downloadedBytes: current.downloadedBytes + next.value.byteLength, speedBps: Math.round(downloaded / Math.max(1, (Date.now() - started) / 1000)), phase })
+          const elapsedMs = Math.max(1, Date.now() - started)
+          const totalBytes = total > 0 && (phaseBaseBytes > 0 || phaseBaseDownloaded === 0) ? phaseBaseBytes + total : 0
+          this.save(current, {
+            totalBytes,
+            downloadedBytes: current.downloadedBytes + next.value.byteLength,
+            transferDurationMs: phaseBaseDurationMs + elapsedMs,
+            speedBps: Math.round(downloaded * 1000 / elapsedMs),
+            phase,
+          })
         }
       }
     } finally {
