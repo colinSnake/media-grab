@@ -280,7 +280,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
           {resolutionLabel !== '' && <span className="task-resolution-tag" title={resolutionLabel}>{resolutionLabel}</span>}
         </span>
       </span>
-      {!terminal && task.status !== 'queued' && onCancel !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'cancel' ? '正在停止任务' : '停止任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <CircleStop />}</TaskIconButton>}
+        {!terminal && task.status !== 'queued' && onCancel !== undefined && <TaskIconButton className="task-action stop-action" type="button" label={busyAction === 'cancel' ? '正在停止任务' : '停止任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <CircleStop />}</TaskIconButton>}
       {variant === 'detail' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
       <span className="task-actions">
         {task.status === 'queued' && onStart !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'start' ? '正在启动下载' : `下载${task.mode === 'video+audio' ? '视频和音频' : task.mode === 'image' ? '图片' : task.mode === 'audio' ? '音频' : '视频'}文件`} onClick={() => void runAction('start', onStart)} disabled={busyAction !== null} aria-busy={busyAction === 'start'}>{busyAction === 'start' ? <LoaderCircle className="spin" /> : <ArrowDownToLine />}</TaskIconButton>}

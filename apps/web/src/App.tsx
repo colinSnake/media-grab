@@ -830,7 +830,7 @@ function App() {
           <div className="right-stack">
             <section className="panel output-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><span className="heading-icon"><FolderDown /></span><div><h2>保存设置</h2></div></div>
+                <div className="heading-title"><div><h2>保存设置</h2></div></div>
               </div>
               <div className="mode-list">
                 {selectedGenericStream?.kind === 'image' ? <div className="mode-option selected"><span className="mode-choice"><span className="mode-radio" /><span className="mode-copy"><strong>保存图片</strong><small>保留原始图片格式；每次选择一张</small></span></span><span className="mode-check"><Check /></span></div> : modeOptions.map((option) => (
@@ -851,7 +851,7 @@ function App() {
 
             <section className="panel tasks-panel">
               <div className="panel-heading compact-heading">
-                <div className="heading-title"><TaskIconTooltip label="最近任务"><span className="heading-icon"><ListChecks /></span></TaskIconTooltip><div><h2><span className="heading-main">最近任务</span><small className="heading-count">（{recentTasks.length}项）</small></h2></div></div>
+                <div className="heading-title"><div><h2><span className="heading-main">最近任务</span><small className="heading-count">（{recentTasks.length}项）</small></h2></div></div>
               </div>
               {recentTasks.length === 0 ? <div className="tasks-empty"><TaskIconTooltip label="暂无最近任务"><Clock3 /></TaskIconTooltip><span>新任务会显示在这里</span></div> : <div className="task-list" role="list">{recentTasks.map((task) => <TaskRow key={task.id} task={task} variant="compact" selected={selectedTaskId === task.id} onSelect={() => showTask(task)} onStart={beginDownload} onCancel={stopTask} onRemove={removeListedTask} removeLabel={isTerminalTask(task) ? '删除历史任务' : '删除队列任务'} />)}</div>}
             </section>
@@ -860,7 +860,7 @@ function App() {
 
         {activeView !== 'new' && <section className="panel task-view-panel">
           <div className="panel-heading">
-            <div className="heading-title"><TaskIconTooltip label={activeView === 'history' ? '历史记录' : '下载队列'}><span className="heading-icon">{activeView === 'queue' ? <ListChecks /> : <Clock3 />}</span></TaskIconTooltip><div><h2><span className="heading-main">{activeView === 'history' ? '历史记录' : '下载队列'}</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
+            <div className="heading-title"><div><h2><span className="heading-main">任务列表</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
             <div ref={historyFilterRef} className="platform-filter" data-open={historyFilterOpen ? 'true' : 'false'}>
               <button className="platform-filter-trigger" type="button" aria-haspopup="listbox" aria-expanded={historyFilterOpen} onClick={() => setHistoryFilterOpen((open) => !open)}>
                 <span className={`platform-filter-icon ${historyPlatform === 'all' || historyPlatform === 'unknown' ? 'douyin' : historyPlatform}`} aria-hidden="true">{historyPlatform === 'all' || historyPlatform === 'unknown' ? <Globe2 className="platform-filter-globe" /> : <PlatformLogo platform={historyPlatform} />}</span>

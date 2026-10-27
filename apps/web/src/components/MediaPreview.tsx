@@ -74,7 +74,7 @@ export function MediaPreview({ parsed, genericParsed, selectedQuality, selectedS
         <path d="M104 22v7m-3.5-3.5h7M390 14v7m-3.5-3.5h7" strokeLinecap="round" />
       </svg>}
       <div className="panel-heading">
-        <div className="heading-title"><span className="heading-icon"><FileVideo2 /></span><div><h2>媒体预览</h2></div></div>
+        <div className="heading-title"><div><h2>媒体预览</h2></div></div>
       </div>
       {parsed === null && genericParsed === null ? (
         <div className="result-empty">
