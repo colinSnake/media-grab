@@ -122,6 +122,9 @@ try {
   }
 
   const appStderr = path.join(temporaryDir, 'app.stderr.log')
+  const startupDiagnostic = path.join(os.tmpdir(), 'mediagrab-desktop-startup.log')
+  await rm(startupDiagnostic, { force: true }).catch(() => {})
+  env.MEDIAGRAB_STARTUP_DIAGNOSTICS = '1'
   if (process.platform === 'darwin') {
     child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, '--stderr', appStderr, launchTarget], { env, stdio: ['ignore', 'ignore', 'pipe'] })
   } else {
@@ -144,6 +147,7 @@ try {
     const logFiles = await findFiles(temporaryDir, 'core.log')
     const diagnostics = await Promise.all([
       readFile(appStderr, 'utf8').catch(() => ''),
+      readFile(startupDiagnostic, 'utf8').catch(() => ''),
       readFile(path.join(expectedDataRoot, 'logs', 'core.log'), 'utf8').catch(() => ''),
       ...logFiles.map((file) => readFile(file, 'utf8').then((content) => `${file}\n${content}`).catch(() => '')),
     ])

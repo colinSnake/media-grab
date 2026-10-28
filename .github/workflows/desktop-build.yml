@@ -159,6 +159,7 @@ jobs:
             .release-tools/${{ matrix.target }}/build-records/
             apps/desktop/src-tauri/resources/core/runtime.json
             ${{ runner.temp }}/mediagrab-installed-smoke-*/**/core.log
+            ${{ runner.temp }}/mediagrab-desktop-startup.log
             apps/desktop/src-tauri/resources/media-tools/${{ matrix.target }}/tools-manifest.json
           if-no-files-found: ignore
           retention-days: 7

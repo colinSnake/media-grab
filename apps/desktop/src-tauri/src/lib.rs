@@ -15,6 +15,17 @@ use tauri_plugin_notification::NotificationExt;
 struct CoreProcess(Mutex<Option<Child>>);
 struct CoreSecret(String);
 
+fn startup_diagnostic(message: impl AsRef<str>) {
+    if std::env::var("MEDIAGRAB_STARTUP_DIAGNOSTICS").as_deref() != Ok("1") {
+        return;
+    }
+    let file = std::env::temp_dir().join("mediagrab-desktop-startup.log");
+    let Ok(mut output) = std::fs::OpenOptions::new().create(true).append(true).open(file) else {
+        return;
+    };
+    let _ = writeln!(output, "{}", message.as_ref());
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeInfo {
@@ -244,6 +255,14 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
     };
     let node = core_dir.join(node_name);
     let entry = core_dir.join("dist/index.js");
+    startup_diagnostic(format!(
+        "core_dir={} node={} node_exists={} entry={} entry_exists={}",
+        core_dir.display(),
+        node.display(),
+        node.is_file(),
+        entry.display(),
+        entry.is_file()
+    ));
     if !node.is_file() || !entry.is_file() {
         return Err(format!(
             "mediaGrab core 未随当前构建提供: node={}, entry={}",
@@ -256,6 +275,7 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
         .path()
         .app_data_dir()
         .map_err(|error| format!("无法定位应用数据目录: {error}"))?;
+    startup_diagnostic(format!("data_dir={}", data_dir.display()));
     std::fs::create_dir_all(&data_dir).map_err(|error| format!("无法创建应用数据目录: {error}"))?;
     let tools_dir = resource_path(app, "resources/media-tools")?;
     let log_dir = data_dir.join("logs");
@@ -293,10 +313,16 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(error_file));
 
-    command
-        .spawn()
-        .map(Some)
-        .map_err(|error| format!("无法启动 mediaGrab 本地核心: {error}"))
+    match command.spawn() {
+        Ok(child) => {
+            startup_diagnostic(format!("core_spawned_pid={}", child.id()));
+            Ok(Some(child))
+        }
+        Err(error) => {
+            startup_diagnostic(format!("core_spawn_error={error}"));
+            Err(format!("无法启动 mediaGrab 本地核心: {error}"))
+        }
+    }
 }
 
 fn stop_core(app: &AppHandle) {
