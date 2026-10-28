@@ -6,6 +6,7 @@ import {
   Clock3,
   Copy,
   FileAudio2,
+  FileDown,
   FileImage,
   FileVideo2,
   FolderDown,
@@ -16,7 +17,6 @@ import {
   LoaderCircle,
   MoreHorizontal,
   RotateCcw,
-  CircleStop,
   Trash2,
   X,
 } from 'lucide-react'
@@ -100,7 +100,7 @@ export function TaskStatusIndicator({ status, error, focusable = true }: { statu
   const label = error ? `${taskStatusLabel(status)}：${error}` : taskStatusLabel(status)
   return <TaskIconTooltip label={label}>
     <span className={`task-indicator ${status}`} role="img" aria-label={label} tabIndex={focusable ? 0 : undefined}>
-      {status === 'success' ? <Check /> : status === 'fail' || status === 'stopped' ? <X /> : status === 'waiting' || status === 'queued' ? <Clock3 /> : <LoaderCircle className="spin" />}
+      {status === 'success' ? <Check /> : status === 'fail' || status === 'stopped' ? <X /> : status === 'waiting' || status === 'queued' ? <Clock3 /> : status === 'downloading' || status === 'merging' ? <span className="task-scan-mark" aria-hidden="true" /> : <LoaderCircle className="spin" />}
     </span>
   </TaskIconTooltip>
 }
@@ -224,6 +224,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
   }
 
   const terminal = isTerminalTask(task)
+  const canCancelFromRow = !terminal && task.status !== 'queued' && onCancel !== undefined
   const title = task.title || task.bvid || task.input
   const modeLabel = task.mode === 'image' ? '图片' : task.mode === 'audio'
     ? `音频 ${task.audioContainer ?? 'm4a'}`
@@ -256,16 +257,22 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
   const downloadLabel = bundledOutput ? '视频和音频' : outputFiles[0]?.kind === 'audio' ? '音频' : outputFiles[0]?.kind === 'image' ? '图片' : '视频'
   return (
     <div
-      className={`${variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''}`} ${selected ? 'is-selected' : ''}`}
+      className={`${variant === 'compact' ? 'task-row' : `task-view-row ${terminal ? 'terminal' : ''}`} ${selected ? 'is-selected' : ''} ${canCancelFromRow ? 'task-row-scanning' : ''}`}
       role="listitem"
       tabIndex={onSelect ? 0 : undefined}
       aria-current={selected ? 'true' : undefined}
-      aria-label={title}
-      onClick={(event) => { if (event.currentTarget.contains(event.target as Node)) onSelect?.(task.id) }}
+      aria-label={canCancelFromRow ? `${title}，下载中，点击取消` : title}
+      title={canCancelFromRow ? '点击任务块取消下载' : undefined}
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest('button')) return
+        if (canCancelFromRow) void runAction('cancel', onCancel!)
+        else onSelect?.(task.id)
+      }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
         event.preventDefault()
-        onSelect?.(task.id)
+        if (canCancelFromRow) void runAction('cancel', onCancel!)
+        else onSelect?.(task.id)
       }}
     >
       <TaskIconTooltip label={platformLabel[task.platform]}>
@@ -280,8 +287,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
           {resolutionLabel !== '' && <span className="task-resolution-tag" title={resolutionLabel}>{resolutionLabel}</span>}
         </span>
       </span>
-        {!terminal && task.status !== 'queued' && onCancel !== undefined && <TaskIconButton className="task-action stop-action" type="button" label={busyAction === 'cancel' ? '正在停止任务' : '停止任务'} onClick={() => void runAction('cancel', onCancel)} disabled={busyAction !== null} aria-busy={busyAction === 'cancel'}>{busyAction === 'cancel' ? <LoaderCircle className="spin" /> : <CircleStop />}</TaskIconButton>}
-      {variant === 'detail' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
+      {variant === 'detail' && task.status !== 'queued' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
       <span className="task-actions">
         {task.status === 'queued' && onStart !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'start' ? '正在启动下载' : `下载${task.mode === 'video+audio' ? '视频和音频' : task.mode === 'image' ? '图片' : task.mode === 'audio' ? '音频' : '视频'}文件`} onClick={() => void runAction('start', onStart)} disabled={busyAction !== null} aria-busy={busyAction === 'start'}>{busyAction === 'start' ? <LoaderCircle className="spin" /> : <ArrowDownToLine />}</TaskIconButton>}
         {variant === 'detail' && task.status === 'success' && outputFiles.length > 0 && (
@@ -289,7 +295,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
             {isHistory ? (isDesktop() ? <FolderOpen /> : <FolderDown />) : <ArrowDownToLine />}
           </TaskIconButton>
         )}
-        {terminal && onRetry !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'retry' ? '正在重新下载' : '重新下载'} onClick={() => void runAction('retry', onRetry)} disabled={busyAction !== null} aria-busy={busyAction === 'retry'}>{busyAction === 'retry' ? <LoaderCircle className="spin" /> : <RotateCcw />}</TaskIconButton>}
+        {terminal && onRetry !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'retry' ? '正在重新下载' : '重新下载'} onClick={() => void runAction('retry', onRetry)} disabled={busyAction !== null} aria-busy={busyAction === 'retry'}>{busyAction === 'retry' ? <LoaderCircle className="spin" /> : isHistory ? <FileDown /> : <RotateCcw />}</TaskIconButton>}
         {variant === 'detail' && <TaskIconButton className="task-action" type="button" label="更多任务信息" onClick={() => setShowDetails(true)}><MoreHorizontal /></TaskIconButton>}
         {(terminal || task.status === 'queued' || variant === 'detail') && onRemove !== undefined && <TaskIconButton className="task-action" type="button" label={busyAction === 'remove' ? '正在删除任务' : removeLabel} onClick={() => void runAction('remove', onRemove)} disabled={busyAction !== null} aria-busy={busyAction === 'remove'}>{busyAction === 'remove' ? <LoaderCircle className="spin" /> : <Trash2 />}</TaskIconButton>}
       </span>

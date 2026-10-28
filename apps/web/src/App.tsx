@@ -512,7 +512,6 @@ function App() {
       setSelectedQuality(null)
       modeTouchedRef.current = false
       setMode(configRef.current?.defaultDownloadMode ?? mode)
-      if (task.platform !== 'unknown') setHistoryPlatform(task.platform)
       setActiveView(isTerminalTask(task) ? 'history' : 'queue')
       setNotice(result.deduplicated
         ? { kind: 'info', text: '相同下载配置已存在，未重复创建任务。' }

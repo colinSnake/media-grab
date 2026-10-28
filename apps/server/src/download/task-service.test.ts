@@ -104,6 +104,38 @@ describe('TaskService task identity', () => {
     }
   })
 
+  it('does not drop an immediate retry requested as soon as success is persisted', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-immediate-retry-'))
+    const repo = new FakeTaskRepository()
+    const media: MediaParseResult = {
+      platform: 'douyin', input: 'https://example.com/video/immediate-retry', id: 'immediate-retry', title: 'retry', authorName: '', cover: '', durationSec: 1,
+      streams: [{ id: 'video', kind: 'video', combined: false, label: '720P', url: 'https://example.com/stream', backupUrls: [], available: true, reason: '' }],
+      itemCount: 1, capabilities: { video: true, audio: false, image: false, download: true },
+    }
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-length': '3' } }))
+    const taskService = new TaskService({
+      repo: repo as never, platforms: {} as never, media: { parse: async () => media } as never,
+      config: { get: () => ({ ffmpegPath: '', savePath: root, downloadPoolSize: 1 }) } as never,
+      dataDir: root, fetchImpl: fetchImpl as typeof fetch,
+    })
+    let retryRequested = false
+    const unsubscribe = taskService.subscribe((event) => {
+      if (event.type !== 'task-update' || event.task.status !== 'success' || retryRequested) return
+      retryRequested = true
+      taskService.retry(event.task.id)
+    })
+    try {
+      const { task } = await taskService.create({ start: false, platform: 'douyin', input: media.input, mode: 'video', title: media.title })
+      taskService.start(task.id)
+      await waitFor(() => taskService.get(task.id)?.status === 'success' && fetchImpl.mock.calls.length === 2)
+      expect(retryRequested).toBe(true)
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+    } finally {
+      unsubscribe()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('retains partial transfer statistics when a stream fails', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-partial-stats-'))
     const repo = new FakeTaskRepository()

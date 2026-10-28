@@ -292,7 +292,7 @@ export class TaskService {
           this.#logger.error({ error: error instanceof Error ? error.message : String(error) }, '下载任务异常')
         })
         .finally(() => {
-          this.#active.delete(id)
+          if (this.#active.get(id) === active) this.#active.delete(id)
           this.#runningCount = Math.max(0, this.#runningCount - 1)
           this.pump()
         })
