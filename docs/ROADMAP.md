@@ -9,9 +9,9 @@
 | A0 | 产品重启：命名、领域模型、文档和 UI 基线 | 已完成 |
 | A1 | 通用解析契约 + B 站 adapter + 下载任务闭环 | 核心代码与离线测试通过；B 站有/无 Cookie 下载及最终文件已人工核对，真实进度、多 P 目标文件和历史重下待验收 |
 | A2 | 抖音、小红书 adapter 与统一错误/权限模型 | 适配器已接入；抖音无 Cookie 文件、小红书此前登录态视频已验收，其他身份/资源边界待细化 |
-| D1 | Tauri 桌面壳、三端开发运行与文件能力 | 壳与发行准备管线已实现；macOS arm64 发行构建完成，真实安装包和跨平台验收中 |
-| D2 | 完成桌面运行时集成与三端验证 | 核心集成、身份握手、请求边界和隔离 core 已验证；macOS arm64 DMG 启动烟测通过，任务生命周期和媒体预览待验收 |
-| D3 | macOS/Windows/Linux 打包、签名、升级和发布 | Linux x64 构建及安装烟测通过；macOS DMG 烟测本机通过并正在修正 CI 入口；Windows runner 本次下载 FFmpeg 源时网络超时 |
+| D1 | Tauri 桌面壳、三端开发运行与文件能力 | 壳、发行资源准备和四目标构建管线已实现；macOS arm64/x64、Windows x64、Linux x64 安装包均已生成 |
+| D2 | 完成桌面运行时集成与三端验证 | 核心集成、身份握手、请求边界、随包 Node 和隔离数据目录已通过四目标安装后烟测；任务生命周期和媒体预览仍待人工验收 |
+| D3 | macOS/Windows/Linux 打包、签名、升级和发布 | 四目标 CI 构建、安装、启动、健康检查、API 鉴权和进程回收均通过；签名、自动更新和正式发布仍暂缓 |
 
 ## 2026-10-28 进度快照
 
@@ -22,7 +22,7 @@
 - 已修复加入任务后平台来源筛选被自动切换的问题，当前筛选会保留，默认选中仍为“全部来源”。
 - 本轮基于当前工作树重新完成 macOS arm64 `pnpm build:desktop:release`；隔离目录验证 Node core、Fastify、前端静态资源、FFmpeg 和 yt-dlp 可用。最终 DMG 为 `apps/desktop/src-tauri/target/release/bundle/dmg/MediaGrab_0.1.0_aarch64.dmg`，约 82 MB，`hdiutil verify` 通过，SHA-256 为 `f825d78f89c991874ce38022eaa15acb4aa77b9dee2666984f0182c828350ebb`；主程序、Node 和 FFmpeg 均为 arm64，yt-dlp 为 universal。
 - 本轮从只读挂载的 DMG 经 macOS LaunchServices 启动 app，隔离 `HOME` 下完成安装包烟测：health 与 SQLite 可用、数据库位于隔离目录、运行时为包内 Node、未授权配置请求返回 `CORE_AUTH_REQUIRED`，退出后 9070 端口释放。首次直接执行 Mach-O 失败（Tauri 无法定位 app resources），已改为通过 `.app`/LaunchServices 启动并将烟测接入 macOS CI；Windows/Linux CI 烟测仍保持原有流程。
-- 手动运行 GitHub Actions `40652411148`、`40654344799`、`40657329835`、`40659081743`、`40660815930`：共享类型检查与 304 项测试通过；Linux x64 构建及安装烟测通过，macOS arm64/x64 DMG 烟测通过。Windows x64 已解决 Node 24/Undici 下载不完整响应崩溃，并修复 Windows 下 pnpm 版本检测；pnpm deploy 仍将带盘符的绝对临时路径错误拼接到仓库路径，本轮改为从仓库根传入同一临时目录的相对路径，待 CI 重跑验证。
+- GitHub Actions `40686360439` 已完成闭环：类型检查与 304 项测试、Linux x64、macOS arm64/x64、Windows x64 均通过；四目标安装后烟测均验证 loopback health、隔离 SQLite、随包 Node、API 鉴权和进程回收。Windows 期间额外修复了 Node 24/Undici 下载不完整响应、pnpm/MSYS2 环境、pnpm deploy 临时路径、Tauri `\\?\` 资源路径和 Windows 烟测数据目录隔离问题。
 - 任务取消/恢复、WebSocket 与媒体预览交互、历史文件重下、端口抢占提示及真实平台样本仍未验收；本轮没有停止用户进程，也没有清理仓库 `data/`。
 
 ## A0：产品重启
@@ -102,10 +102,10 @@
 - [ ] 在真实 macOS/Windows/Linux 安装包中验收原生文件选择、通知权限、托盘交互和快捷键（P1）。
 - [x] 开发模式下通过 Vite `/api` 代理调用本地 core；前端不直接操作文件系统。
 - [ ] 验证 macOS、Windows、Linux 的窗口尺寸、高 DPI 和深色模式。
-- [ ] 在真实安装包中验收 Node 运行时、Fastify 服务和数据目录的生命周期。
+- [x] 在真实安装包中验收 Node 运行时、Fastify 服务和数据目录的生命周期（GitHub Actions `40686360439`，2026-10-28）。
 - [x] 确定 FFmpeg/yt-dlp 随包提供的分发策略、目标目录和版本校验方式。
 - [x] 增加发布工具下载脚本，要求固定 URL、版本和 SHA-256 后才会打包。
-- [x] 为 macOS arm64/x64、Windows x64、Linux x64 固定 FFmpeg/yt-dlp 输入版本和哈希，并附带许可证说明（实际 CI 产物仍待验收）。
+- [x] 为 macOS arm64/x64、Windows x64、Linux x64 固定 FFmpeg/yt-dlp 输入版本和哈希，并附带许可证说明；四目标安装包均已由 CI 验收。
 
 ## D2：桌面运行时集成
 
@@ -117,15 +117,15 @@
 - [x] 从只读挂载的 macOS arm64 DMG 启动 `.app` 并通过隔离数据目录、随包 Node、health、API 鉴权和进程回收烟测；同一烟测接入 macOS CI（2026-10-28）。
 - [x] 桌面壳每次启动生成随机访问凭据，以 HMAC 随机挑战验证 core 身份后再交给 WebView；桌面 API/WebSocket 要求凭据，媒体预览受限查询凭据并避免在请求日志记录敏感查询串（2026-10-23，离线测试通过）。
 - [ ] 用实际发行安装包验收端口抢占、WebSocket 握手、媒体预览及凭据泄漏防护；Host/Origin/随机凭据均不能抵御拥有同用户进程调试权限的恶意本机程序。
-- [ ] 在 macOS、Windows、Linux 验证应用数据目录、下载目录和工具路径。
+- [x] 在 macOS、Windows、Linux 验证应用数据目录、下载目录和工具路径（CI 安装后烟测已覆盖应用数据目录、随包 Node 和媒体工具；下载目录仍待人工真实文件验收）。
 - [ ] 用真实安装包验收任务取消、异常退出恢复和服务未就绪提示。
 
 ## D3：发布
 
 - [x] 桌面 CI 改为按需运行：分支 push 的 HEAD 提交信息包含 `build-ci-cd` 或手动 dispatch 时才执行测试与构建；普通推送全部跳过作业且不会取消进行中的构建，推送版本标签不再自动打包（2026-10-23）。
-- [x] 为 CI 增加 Windows NSIS 静默安装、Linux deb 安装与 AppImage 无 FUSE 运行的安装后烟测：拉起实际 GUI 应用并校验 loopback API、独立数据目录、随包 Node 与 API 鉴权；FFmpeg/yt-dlp 由安装前隔离运行时检查验证，并在烟测结束后回收测试进程（2026-10-23，脚本已接入，尚未由 Windows/Linux runner 执行）。
-- [ ] 重跑并收口 GitHub Actions：Linux x64 已通过；确认 macOS arm64/x64 DMG 烟测修复和 Windows x64 上游下载超时后的重试结果。不能把静态脚本与本地单平台验证视为跨系统安装验收。
-- [ ] macOS arm64+x64 独立安装包 / Windows x64 / Linux x64 AppImage 或 deb。
+- [x] 为 CI 增加 Windows NSIS 静默安装、Linux deb 安装与 AppImage 无 FUSE 运行，以及 macOS DMG 挂载启动的安装后烟测：拉起实际 GUI 应用并校验 loopback API、独立数据目录、随包 Node 与 API 鉴权；FFmpeg/yt-dlp 由安装前隔离运行时检查验证，并在烟测结束后回收测试进程（2026-10-28，四目标 CI 已通过）。
+- [x] 重跑并收口 GitHub Actions：`40686360439` 的 Linux x64、macOS arm64/x64、Windows x64 构建及安装烟测全部通过（2026-10-28）。
+- [x] 生成 macOS arm64+x64 DMG、Windows x64 NSIS、Linux x64 AppImage/deb 安装包并完成 CI 安装后验证（2026-10-28）。
 - [ ] 代码签名、自动更新、版本回滚和崩溃日志脱敏。
 - [ ] 发布前用真实安装包验证下载目录、FFmpeg、通知和卸载行为。
 
@@ -134,7 +134,7 @@
 1. **继续本机桌面包人工验收**：在隔离数据目录验证端口抢占提示、服务未就绪提示、WebSocket 握手、媒体预览凭据、任务取消/异常退出恢复、历史文件打开和文件丢失后重新下载。
 2. **收口真实平台样本**：补齐 B 站有/无 Cookie 样本链接、产物模式、真实进度/速度、多 P 目标文件和视频/音频各模式；归档本轮小红书测试结果；继续确认抖音短链/详情/受限内容边界。
 3. **补 P1 稳定性**：断点续传、重启恢复、失败自动重试、暂停/继续，以及平台能力矩阵细化；小红书真实图文多图验收继续保留为 P1。
-4. **发布专属事项暂缓**：代码签名、公证、自动更新、版本回滚、跨平台 runner 实跑和崩溃诊断不阻塞当前自用版本，待决定对外发布时再排期。
+4. **发布专属事项暂缓**：代码签名、公证、自动更新、版本回滚和崩溃诊断不阻塞当前自用版本；跨平台 runner 实跑已完成，待决定对外发布时再排期。
 
 ## P0 完成定义
 
