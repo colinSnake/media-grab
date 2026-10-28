@@ -8,7 +8,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, RunEvent, WindowEvent,
+};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -20,7 +24,11 @@ fn startup_diagnostic(message: impl AsRef<str>) {
         return;
     }
     let file = std::env::temp_dir().join("mediagrab-desktop-startup.log");
-    let Ok(mut output) = std::fs::OpenOptions::new().create(true).append(true).open(file) else {
+    let Ok(mut output) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+    else {
         return;
     };
     let _ = writeln!(output, "{}", message.as_ref());
@@ -120,7 +128,11 @@ fn notify_download(app: AppHandle, title: String) -> Result<(), String> {
     app.notification()
         .builder()
         .title("MediaGrab 下载完成")
-        .body(if short_title.is_empty() { "媒体已保存".to_owned() } else { short_title })
+        .body(if short_title.is_empty() {
+            "媒体已保存".to_owned()
+        } else {
+            short_title
+        })
         .show()
         .map_err(|error| format!("无法发送通知: {error}"))
 }
@@ -140,41 +152,69 @@ fn verify_core_challenge(address: SocketAddr, token: &str, nonce: &str) -> Resul
         Ok(stream) => stream,
         Err(_) => return Ok(false), // Core may still be starting.
     };
-    stream.set_read_timeout(Some(Duration::from_secs(2))).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| error.to_string())?;
     stream.write_all(format!("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:9070\r\nX-Mediagrab-Nonce: {nonce}\r\nConnection: close\r\n\r\n").as_bytes())
         .map_err(|error| format!("本地核心握手失败: {error}"))?;
     let mut response = Vec::new();
     let mut block = [0u8; 2048];
     while response.len() < 16_384 && !response.windows(4).any(|part| part == b"\r\n\r\n") {
-        let n = stream.read(&mut block).map_err(|error| format!("读取核心握手响应失败: {error}"))?;
-        if n == 0 { break; }
+        let n = stream
+            .read(&mut block)
+            .map_err(|error| format!("读取核心握手响应失败: {error}"))?;
+        if n == 0 {
+            break;
+        }
         response.extend_from_slice(&block[..n]);
     }
-    let header_end = response.windows(4).position(|part| part == b"\r\n\r\n").ok_or_else(|| "核心握手响应缺少 HTTP 头".to_owned())?;
-    let headers = std::str::from_utf8(&response[..header_end]).map_err(|_| "核心握手响应不合法".to_owned())?;
-    if !headers.starts_with("HTTP/1.1 200 ") { return Err("本地端口已被其他服务占用或核心未能启动".to_owned()); }
-    let proof = headers.split("\r\n").find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("x-mediagrab-proof")).map(|(_, value)| value.trim()));
+    let header_end = response
+        .windows(4)
+        .position(|part| part == b"\r\n\r\n")
+        .ok_or_else(|| "核心握手响应缺少 HTTP 头".to_owned())?;
+    let headers = std::str::from_utf8(&response[..header_end])
+        .map_err(|_| "核心握手响应不合法".to_owned())?;
+    if !headers.starts_with("HTTP/1.1 200 ") {
+        return Err("本地端口已被其他服务占用或核心未能启动".to_owned());
+    }
+    let proof = headers.split("\r\n").find_map(|line| {
+        line.split_once(':')
+            .filter(|(name, _)| name.eq_ignore_ascii_case("x-mediagrab-proof"))
+            .map(|(_, value)| value.trim())
+    });
     let proof = proof.ok_or_else(|| "本地端口上的服务没有通过桌面握手".to_owned())?;
-    if proof.len() != 64 { return Err("核心握手响应不合法".to_owned()); }
+    if proof.len() != 64 {
+        return Err("核心握手响应不合法".to_owned());
+    }
     let mut actual = Vec::with_capacity(32);
     for chunk in proof.as_bytes().chunks_exact(2) {
         let hex = std::str::from_utf8(chunk).map_err(|_| "核心握手响应不合法".to_owned())?;
         actual.push(u8::from_str_radix(hex, 16).map_err(|_| "核心握手响应不合法".to_owned())?);
     }
-    let mut mac = Hmac::<Sha256>::new_from_slice(token.as_bytes()).map_err(|error| error.to_string())?;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(token.as_bytes()).map_err(|error| error.to_string())?;
     mac.update(nonce.as_bytes());
-    mac.verify_slice(&actual).map_err(|_| "本地端口上的服务未通过桌面身份验证".to_owned())?;
+    mac.verify_slice(&actual)
+        .map_err(|_| "本地端口上的服务未通过桌面身份验证".to_owned())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn get_core_access(app: AppHandle) -> Result<String, String> {
-    if cfg!(debug_assertions) { return Ok(String::new()); }
+    if cfg!(debug_assertions) {
+        return Ok(String::new());
+    }
     {
         let state = app.state::<CoreProcess>();
         let mut process = state.0.lock().map_err(|_| "核心进程锁不可用".to_owned())?;
-        let child = process.as_mut().ok_or_else(|| "桌面核心未安装".to_owned())?;
-        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        let child = process
+            .as_mut()
+            .ok_or_else(|| "桌面核心未安装".to_owned())?;
+        if child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
             return Err("桌面核心已退出，请检查数据目录中的 core.log".to_owned());
         }
     }
@@ -183,11 +223,15 @@ async fn get_core_access(app: AppHandle) -> Result<String, String> {
         let nonce = fresh_hex(16)?;
         let deadline = Instant::now() + Duration::from_secs(8);
         while Instant::now() < deadline {
-            if verify_core_challenge(SocketAddr::from(([127, 0, 0, 1], 9070)), &token, &nonce)? { return Ok(token); }
+            if verify_core_challenge(SocketAddr::from(([127, 0, 0, 1], 9070)), &token, &nonce)? {
+                return Ok(token);
+            }
             std::thread::sleep(Duration::from_millis(150));
         }
         Err("本地核心未就绪，请稍后重试".to_owned())
-    }).await.map_err(|error| error.to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -220,6 +264,7 @@ fn resource_path(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|error| format!("无法定位应用资源目录: {error}"))?;
+    let root = normalize_child_path(root);
     let direct = root.join(relative);
     if direct.exists() {
         return Ok(direct);
@@ -238,12 +283,34 @@ fn resource_path(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {
     Ok(direct)
 }
 
+/// Node on Windows does not accept the verbatim `\\?\` path form for its
+/// entrypoint resolution. Tauri may return that form for bundled resources,
+/// so convert it back to a regular Win32 path before spawning the core.
+fn normalize_child_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(rest) = raw.strip_prefix("\\\\?\\UNC\\") {
+            return PathBuf::from(format!("\\\\{rest}"));
+        }
+        if let Some(rest) = raw.strip_prefix("\\\\?\\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
 fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
     if cfg!(debug_assertions) {
         return Ok(None);
     }
 
-    if TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], 9070)), Duration::from_millis(250)).is_ok() {
+    if TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], 9070)),
+        Duration::from_millis(250),
+    )
+    .is_ok()
+    {
         return Err("本地端口 9070 已被占用，请先关闭占用该端口的程序".to_owned());
     }
 
@@ -404,8 +471,17 @@ mod tests {
             assert!(String::from_utf8_lossy(&input[..size]).contains(&response_nonce));
             let mut mac = Hmac::<Sha256>::new_from_slice(response_token.as_bytes()).expect("HMAC");
             mac.update(response_nonce.as_bytes());
-            let proof = mac.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>();
-            write!(socket, "HTTP/1.1 200 OK\r\nX-Mediagrab-Proof: {proof}\r\nConnection: close\r\n\r\n").expect("write proof");
+            let proof = mac
+                .finalize()
+                .into_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nX-Mediagrab-Proof: {proof}\r\nConnection: close\r\n\r\n"
+            )
+            .expect("write proof");
         });
         assert!(verify_core_challenge(address, &token, &nonce).expect("verify challenge"));
         responder.join().expect("server done");
@@ -419,9 +495,29 @@ mod tests {
             let (mut socket, _) = listener.accept().expect("accept challenge");
             let mut input = [0u8; 512];
             let _ = socket.read(&mut input).expect("read challenge");
-            write!(socket, "HTTP/1.1 200 OK\r\nX-Mediagrab-Proof: {}\r\n\r\n", "c".repeat(64)).expect("write forged proof");
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nX-Mediagrab-Proof: {}\r\n\r\n",
+                "c".repeat(64)
+            )
+            .expect("write forged proof");
         });
         assert!(verify_core_challenge(address, &"a".repeat(64), &"b".repeat(32)).is_err());
         responder.join().expect("server done");
+    }
+
+    #[test]
+    fn normalize_child_path_removes_windows_verbatim_prefix() {
+        let local = normalize_child_path(PathBuf::from(r"\\?\C:\MediaGrab\resources"));
+        #[cfg(windows)]
+        assert_eq!(local, PathBuf::from(r"C:\MediaGrab\resources"));
+        #[cfg(not(windows))]
+        assert_eq!(local, PathBuf::from(r"\\?\C:\MediaGrab\resources"));
+
+        let unc = normalize_child_path(PathBuf::from(r"\\?\UNC\server\share\resources"));
+        #[cfg(windows)]
+        assert_eq!(unc, PathBuf::from(r"\\server\share\resources"));
+        #[cfg(not(windows))]
+        assert_eq!(unc, PathBuf::from(r"\\?\UNC\server\share\resources"));
     }
 }
