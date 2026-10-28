@@ -34,6 +34,19 @@ fn startup_diagnostic(message: impl AsRef<str>) {
     let _ = writeln!(output, "{}", message.as_ref());
 }
 
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if std::env::var("MEDIAGRAB_STARTUP_DIAGNOSTICS").as_deref() == Ok("1") {
+        if let Ok(path) = std::env::var("MEDIAGRAB_SMOKE_DATA_DIR") {
+            if !path.trim().is_empty() {
+                return Ok(PathBuf::from(path));
+            }
+        }
+    }
+    app.path()
+        .app_data_dir()
+        .map_err(|error| format!("无法定位应用数据目录: {error}"))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeInfo {
@@ -44,10 +57,7 @@ struct RuntimeInfo {
 
 #[tauri::command]
 fn get_runtime_info(app: AppHandle) -> Result<RuntimeInfo, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法定位应用数据目录: {error}"))?;
+    let app_data_dir = app_data_dir(&app)?;
 
     Ok(RuntimeInfo {
         os: std::env::consts::OS.to_string(),
@@ -58,10 +68,7 @@ fn get_runtime_info(app: AppHandle) -> Result<RuntimeInfo, String> {
 
 #[tauri::command]
 fn open_app_data_dir(app: AppHandle) -> Result<(), String> {
-    let path = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法定位应用数据目录: {error}"))?;
+    let path = app_data_dir(&app)?;
     std::fs::create_dir_all(&path).map_err(|error| format!("无法创建应用数据目录: {error}"))?;
 
     #[cfg(target_os = "macos")]
@@ -338,10 +345,7 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
         ));
     }
 
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法定位应用数据目录: {error}"))?;
+    let data_dir = app_data_dir(app)?;
     startup_diagnostic(format!("data_dir={}", data_dir.display()));
     std::fs::create_dir_all(&data_dir).map_err(|error| format!("无法创建应用数据目录: {error}"))?;
     let tools_dir = resource_path(app, "resources/media-tools")?;

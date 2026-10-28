@@ -125,6 +125,7 @@ try {
   const startupDiagnostic = path.join(os.tmpdir(), 'mediagrab-desktop-startup.log')
   await rm(startupDiagnostic, { force: true }).catch(() => {})
   env.MEDIAGRAB_STARTUP_DIAGNOSTICS = '1'
+  env.MEDIAGRAB_SMOKE_DATA_DIR = expectedDataRoot
   if (process.platform === 'darwin') {
     child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, '--stderr', appStderr, launchTarget], { env, stdio: ['ignore', 'ignore', 'pipe'] })
   } else {
