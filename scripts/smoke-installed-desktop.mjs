@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { connect } from 'node:net'
-import { mkdir, mkdtemp, readlink, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -102,8 +102,9 @@ try {
     env[existingDataKey] = expectedDataRoot
   }
 
+  const appStderr = path.join(temporaryDir, 'app.stderr.log')
   if (process.platform === 'darwin') {
-    child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, launchTarget], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+    child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, '--stderr', appStderr, launchTarget], { env, stdio: ['ignore', 'ignore', 'pipe'] })
   } else {
     child = spawn(executable, [], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] })
   }
@@ -117,7 +118,13 @@ try {
   while (Date.now() < deadline && !health && !exit) {
     try { health = await getJson('/api/health') } catch { await new Promise((resolve) => setTimeout(resolve, 350)) }
   }
-  if (!health) throw new Error(`Packaged desktop did not start its local core: ${exit?.message ?? 'timeout'}\n${stderr}`)
+  if (!health) {
+    const diagnostics = await Promise.all([
+      readFile(appStderr, 'utf8').catch(() => ''),
+      readFile(path.join(expectedDataRoot, 'logs', 'core.log'), 'utf8').catch(() => ''),
+    ])
+    throw new Error(`Packaged desktop did not start its local core: ${exit?.message ?? 'timeout'}\n${stderr}\n${diagnostics.join('\n')}`)
+  }
   assert.equal(health.ok, true)
   assert.equal(health.web.built, true)
   assert.equal(health.bili.db.ok, true)

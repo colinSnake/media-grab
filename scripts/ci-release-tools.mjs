@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
-import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const tools = JSON.parse(await readFile(path.join(root, 'scripts/ci-media-tools.json'), 'utf8'))
@@ -13,6 +14,7 @@ const inputDirectory = process.env.MEDIA_GRAB_RELEASE_INPUTS_DIR
   ? path.resolve(process.env.MEDIA_GRAB_RELEASE_INPUTS_DIR)
   : path.join(root, '.release-tools', target)
 const suffix = process.platform === 'win32' ? '.exe' : ''
+const execFileAsync = promisify(execFile)
 
 async function sha256(file) {
   const hash = createHash('sha256')
@@ -33,27 +35,14 @@ async function download(url, output, expectedHash) {
   await mkdir(path.dirname(output), { recursive: true })
   const temporaryFile = `${output}.download`
   try {
-    let lastError
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
-        if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}: ${url}`)
-        let bytes = 0
-        const sizeLimit = new TransformStream({
-          transform(chunk, controller) {
-            bytes += chunk.byteLength
-            if (bytes > 160 * 1024 * 1024) throw new Error(`Download exceeds 160 MiB: ${url}`)
-            controller.enqueue(chunk)
-          },
-        })
-        await pipeline(response.body.pipeThrough(sizeLimit), createWriteStream(temporaryFile))
-        lastError = undefined
-        break
-      } catch (error) {
-        lastError = error
-      }
-    }
-    if (lastError) throw lastError
+    await execFileAsync(process.platform === 'win32' ? 'curl.exe' : 'curl', [
+      '--fail', '--location', '--silent', '--show-error',
+      '--retry', '4', '--retry-all-errors', '--retry-delay', '2',
+      '--connect-timeout', '30', '--max-time', '300',
+      '--output', temporaryFile, url,
+    ], { timeout: 330_000, maxBuffer: 2 * 1024 * 1024 })
+    const { size } = await stat(temporaryFile)
+    if (size === 0 || size > 160 * 1024 * 1024) throw new Error(`Invalid download size (${size} bytes): ${url}`)
     const actualHash = await sha256(temporaryFile)
     if (actualHash !== expectedHash) throw new Error(`SHA-256 mismatch: ${url}\nExpected ${expectedHash}\nReceived ${actualHash}`)
     await rename(temporaryFile, output)
