@@ -1,17 +1,17 @@
-/** Start an *installed* desktop binary, not the Node core in the checkout. */
+/** Start an installed desktop app/binary, not the Node core in the checkout. */
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { connect } from 'node:net'
-import { mkdtemp, readlink, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readlink, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 const executable = process.argv[2]
 if (!executable || !path.isAbsolute(executable)) {
-  throw new Error('Usage: node scripts/smoke-installed-desktop.mjs <absolute installed executable path>')
+  throw new Error('Usage: node scripts/smoke-installed-desktop.mjs <absolute installed executable or app bundle path>')
 }
-if (!['win32', 'linux'].includes(process.platform)) {
-  throw new Error('The installer smoke test currently runs on Windows and Linux CI runners only')
+if (!['win32', 'linux', 'darwin'].includes(process.platform)) {
+  throw new Error('The installer smoke test supports Windows, Linux, and macOS CI runners only')
 }
 
 function portOpen() {
@@ -32,6 +32,11 @@ async function getJson(route) {
 
 function bundledNodeExecutable(pid) {
   if (process.platform === 'linux') return readlink(`/proc/${pid}/exe`)
+  if (process.platform === 'darwin') {
+    const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 10000 })
+    if (result.status !== 0) throw new Error(`Cannot inspect bundled Node process: ${result.stderr?.trim()}`)
+    return Promise.resolve(result.stdout.trim().split(/\s+/, 1)[0] ?? '')
+  }
   const command = `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath`
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 10000 })
   if (result.status !== 0) throw new Error(`Cannot inspect bundled Node process: ${result.stderr?.trim()}`)
@@ -42,12 +47,18 @@ async function stopTree(child) {
   if (child?.pid === undefined) return
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { timeout: 10000, stdio: 'ignore' })
+  } else if (process.platform === 'darwin') {
+    spawnSync('osascript', ['-e', 'tell application id "com.mediagrab.desktop" to quit'], { timeout: 10000, stdio: 'ignore' })
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try { child.kill('SIGTERM') } catch (error) { if (error.code !== 'ESRCH') throw error }
   } else {
     try { process.kill(-child.pid, 'SIGTERM') } catch (error) { if (error.code !== 'ESRCH') throw error }
   }
   await new Promise((resolve) => setTimeout(resolve, 600))
   if (process.platform === 'linux') {
     try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+  } else if (process.platform === 'darwin') {
+    try { child.kill('SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
   }
 }
 
@@ -68,12 +79,24 @@ try {
   env[pathKey] = (env[pathKey] ?? '').split(path.delimiter)
     .filter((item) => !/hostedtoolcache|[\\/]nodejs[\\/]?$|[\\/]pnpm[\\/]?/i.test(item))
     .join(path.delimiter)
-  const expectedDataRoot = path.join(temporaryDir, process.platform === 'win32' ? 'appdata' : 'xdg')
-  const dataKey = process.platform === 'win32' ? 'APPDATA' : 'XDG_DATA_HOME'
-  const existingDataKey = Object.keys(env).find((name) => name.toUpperCase() === dataKey) ?? dataKey
-  env[existingDataKey] = expectedDataRoot
+  let expectedDataRoot
+  if (process.platform === 'darwin') {
+    const home = path.join(temporaryDir, 'home')
+    await mkdir(home, { recursive: true })
+    env.HOME = home
+    expectedDataRoot = path.join(home, 'Library', 'Application Support', 'com.mediagrab.desktop')
+  } else {
+    expectedDataRoot = path.join(temporaryDir, process.platform === 'win32' ? 'appdata' : 'xdg')
+    const dataKey = process.platform === 'win32' ? 'APPDATA' : 'XDG_DATA_HOME'
+    const existingDataKey = Object.keys(env).find((name) => name.toUpperCase() === dataKey) ?? dataKey
+    env[existingDataKey] = expectedDataRoot
+  }
 
-  child = spawn(executable, [], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] })
+  if (process.platform === 'darwin') {
+    child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, executable], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+  } else {
+    child = spawn(executable, [], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] })
+  }
   child.stderr?.on('data', (chunk) => { stderr = `${stderr}${chunk.toString()}`.slice(-3000) })
   let exit
   child.once('error', (error) => { exit = error })
