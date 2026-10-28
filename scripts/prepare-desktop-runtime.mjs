@@ -86,7 +86,7 @@ const deployArgs = [
   '--filter',
   '@mediagrab/server',
   'deploy',
-  deployDir,
+  path.relative(root, deployDir),
   '--prod',
   '--config.node-linker=hoisted',
 ]
