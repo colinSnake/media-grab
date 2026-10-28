@@ -67,7 +67,17 @@ const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-installed-s
 let child
 let stderr = ''
 let success = false
+let mountedDmg
 try {
+  let launchTarget = executable
+  if (process.platform === 'darwin' && executable.toLowerCase().endsWith('.dmg')) {
+    const mountpoint = path.join(temporaryDir, 'dmg')
+    await mkdir(mountpoint, { recursive: true })
+    const mounted = spawnSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mountpoint, executable], { encoding: 'utf8', timeout: 30000 })
+    if (mounted.status !== 0) throw new Error(`Cannot mount DMG: ${mounted.stderr?.trim() || mounted.stdout?.trim()}`)
+    mountedDmg = mountpoint
+    launchTarget = path.join(mountpoint, 'MediaGrab.app')
+  }
   const env = { ...process.env }
   const unsafeOverrides = new Set(['DATA_DIR', 'DB_PATH', 'WEB_DIST', 'MEDIA_TOOLS_DIR', 'HOST', 'PORT', 'NODE_OPTIONS', 'NODE_PATH'])
   for (const name of Object.keys(env)) {
@@ -93,7 +103,7 @@ try {
   }
 
   if (process.platform === 'darwin') {
-    child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, executable], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+    child = spawn('open', ['-n', '-W', '--env', `HOME=${env.HOME}`, '--env', `TMPDIR=${temporaryDir}`, launchTarget], { env, stdio: ['ignore', 'ignore', 'pipe'] })
   } else {
     child = spawn(executable, [], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] })
   }
@@ -135,6 +145,7 @@ try {
   const deadline = Date.now() + 8000
   while (await portOpen() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250))
   const stillRunning = await portOpen()
+  if (mountedDmg) spawnSync('hdiutil', ['detach', mountedDmg, '-force'], { stdio: 'ignore', timeout: 30000 })
   if (success) await rm(temporaryDir, { recursive: true, force: true }).catch(() => {})
   if (stillRunning && success) throw new Error('Packaged core remained listening after desktop shutdown')
 }

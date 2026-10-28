@@ -11,7 +11,7 @@
 | A2 | 抖音、小红书 adapter 与统一错误/权限模型 | 适配器已接入；抖音无 Cookie 文件、小红书此前登录态视频已验收，其他身份/资源边界待细化 |
 | D1 | Tauri 桌面壳、三端开发运行与文件能力 | 壳与发行准备管线已实现；macOS arm64 发行构建完成，真实安装包和跨平台验收中 |
 | D2 | 完成桌面运行时集成与三端验证 | 核心集成、身份握手、请求边界和隔离 core 已验证；macOS arm64 DMG 启动烟测通过，任务生命周期和媒体预览待验收 |
-| D3 | macOS/Windows/Linux 打包、签名、升级和发布 | CI 构建及安装后烟测已配置；自用阶段暂缓签名、公证、自动更新和跨平台发布收口 |
+| D3 | macOS/Windows/Linux 打包、签名、升级和发布 | Linux x64 构建及安装烟测通过；macOS DMG 烟测本机通过并正在修正 CI 入口；Windows runner 本次下载 FFmpeg 源时网络超时 |
 
 ## 2026-10-28 进度快照
 
@@ -22,6 +22,7 @@
 - 已修复加入任务后平台来源筛选被自动切换的问题，当前筛选会保留，默认选中仍为“全部来源”。
 - 本轮基于当前工作树重新完成 macOS arm64 `pnpm build:desktop:release`；隔离目录验证 Node core、Fastify、前端静态资源、FFmpeg 和 yt-dlp 可用。最终 DMG 为 `apps/desktop/src-tauri/target/release/bundle/dmg/MediaGrab_0.1.0_aarch64.dmg`，约 82 MB，`hdiutil verify` 通过，SHA-256 为 `f825d78f89c991874ce38022eaa15acb4aa77b9dee2666984f0182c828350ebb`；主程序、Node 和 FFmpeg 均为 arm64，yt-dlp 为 universal。
 - 本轮从只读挂载的 DMG 经 macOS LaunchServices 启动 app，隔离 `HOME` 下完成安装包烟测：health 与 SQLite 可用、数据库位于隔离目录、运行时为包内 Node、未授权配置请求返回 `CORE_AUTH_REQUIRED`，退出后 9070 端口释放。首次直接执行 Mach-O 失败（Tauri 无法定位 app resources），已改为通过 `.app`/LaunchServices 启动并将烟测接入 macOS CI；Windows/Linux CI 烟测仍保持原有流程。
+- 手动运行 GitHub Actions `40652411148`：共享类型检查与 304 项测试通过；Linux x64 完成构建及 deb/AppImage 安装烟测。macOS arm64/x64 构建成功，但 CI 假设 `.app` 位于 `bundle/macos/`，实际 bundle 不存在而烟测失败；已改为脚本直接只读挂载并测试生成的 DMG，且本机 DMG 入口复测通过，待 CI 重跑。Windows x64 在下载固定 FFmpeg 源时连接 `ffmpeg.org:443` 超时，尚未进入工具哈希验证/构建，需重跑确认。
 - 任务取消/恢复、WebSocket 与媒体预览交互、历史文件重下、端口抢占提示及真实平台样本仍未验收；本轮没有停止用户进程，也没有清理仓库 `data/`。
 
 ## A0：产品重启
@@ -123,7 +124,7 @@
 
 - [x] 桌面 CI 改为按需运行：分支 push 的 HEAD 提交信息包含 `build-ci-cd` 或手动 dispatch 时才执行测试与构建；普通推送全部跳过作业且不会取消进行中的构建，推送版本标签不再自动打包（2026-10-23）。
 - [x] 为 CI 增加 Windows NSIS 静默安装、Linux deb 安装与 AppImage 无 FUSE 运行的安装后烟测：拉起实际 GUI 应用并校验 loopback API、独立数据目录、随包 Node 与 API 鉴权；FFmpeg/yt-dlp 由安装前隔离运行时检查验证，并在烟测结束后回收测试进程（2026-10-23，脚本已接入，尚未由 Windows/Linux runner 执行）。
-- [ ] 查看对应 GitHub Actions 运行结果并处理跨系统实际失败；不能把静态脚本与 macOS 本地构建视为 Windows/Linux 安装验收。
+- [ ] 重跑并收口 GitHub Actions：Linux x64 已通过；确认 macOS arm64/x64 DMG 烟测修复和 Windows x64 上游下载超时后的重试结果。不能把静态脚本与本地单平台验证视为跨系统安装验收。
 - [ ] macOS arm64+x64 独立安装包 / Windows x64 / Linux x64 AppImage 或 deb。
 - [ ] 代码签名、自动更新、版本回滚和崩溃日志脱敏。
 - [ ] 发布前用真实安装包验证下载目录、FFmpeg、通知和卸载行为。
