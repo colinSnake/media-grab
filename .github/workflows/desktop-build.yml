@@ -121,7 +121,7 @@ jobs:
       - name: Remove hidden macOS volume icon file
         if: runner.os == 'macOS'
         run: node scripts/finalize-macos-dmg.mjs
-      - name: Smoke-test macOS app bundle
+      - name: Smoke-test macOS DMG
         if: runner.os == 'macOS'
         run: node scripts/smoke-installed-desktop.mjs "$(find "$PWD/apps/desktop/src-tauri/target/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
       - name: Install and smoke-test Linux deb and AppImage

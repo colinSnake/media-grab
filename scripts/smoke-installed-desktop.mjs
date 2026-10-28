@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { connect } from 'node:net'
-import { mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -76,7 +76,9 @@ try {
     const mounted = spawnSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mountpoint, executable], { encoding: 'utf8', timeout: 30000 })
     if (mounted.status !== 0) throw new Error(`Cannot mount DMG: ${mounted.stderr?.trim() || mounted.stdout?.trim()}`)
     mountedDmg = mountpoint
-    launchTarget = path.join(mountpoint, 'MediaGrab.app')
+    launchTarget = path.join(temporaryDir, 'MediaGrab.app')
+    await cp(path.join(mountpoint, 'MediaGrab.app'), launchTarget, { recursive: true })
+    spawnSync('xattr', ['-dr', 'com.apple.quarantine', launchTarget], { stdio: 'ignore' })
   }
   const env = { ...process.env }
   const unsafeOverrides = new Set(['DATA_DIR', 'DB_PATH', 'WEB_DIST', 'MEDIA_TOOLS_DIR', 'HOST', 'PORT', 'NODE_OPTIONS', 'NODE_PATH'])

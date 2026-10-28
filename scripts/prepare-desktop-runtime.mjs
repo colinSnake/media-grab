@@ -13,19 +13,21 @@ const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const nodeSource = process.env.MEDIA_GRAB_NODE_BIN?.trim() || process.execPath
 
 function run(command, args, env = {}) {
-  if (command === 'pnpm' && process.platform === 'win32') {
-    const pnpmExecutable = process.env.npm_execpath
-    if (pnpmExecutable) {
-      const isJavaScriptEntrypoint = /\.(?:c?js)$/i.test(pnpmExecutable)
-      command = isJavaScriptEntrypoint ? process.execPath : pnpmExecutable
-      if (isJavaScriptEntrypoint) args = [pnpmExecutable, ...args]
-    }
-  }
+  [command, args] = pnpmInvocation(command, args)
   execFileSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } })
 }
 
+function pnpmInvocation(command, args) {
+  if (command !== 'pnpm' || process.platform !== 'win32') return [command, args]
+  const pnpmExecutable = process.env.npm_execpath
+  if (!pnpmExecutable) return [command, args]
+  const isJavaScriptEntrypoint = /\.(?:c?js)$/i.test(pnpmExecutable)
+  return [isJavaScriptEntrypoint ? process.execPath : pnpmExecutable, isJavaScriptEntrypoint ? [pnpmExecutable, ...args] : args]
+}
+
 function pnpmMajorVersion() {
-  const version = execFileSync('pnpm', ['--version'], { cwd: root, encoding: 'utf8' }).trim()
+  const [command, args] = pnpmInvocation('pnpm', ['--version'])
+  const version = execFileSync(command, args, { cwd: root, encoding: 'utf8' }).trim()
   const major = Number.parseInt(version.split('.', 1)[0] ?? '', 10)
   if (!Number.isInteger(major)) throw new Error(`无法识别 pnpm 版本: ${version}`)
   return major
