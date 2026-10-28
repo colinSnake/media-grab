@@ -145,10 +145,13 @@ try {
   }
   if (!health) {
     const logFiles = await findFiles(temporaryDir, 'core.log')
+    const startupLog = await readFile(startupDiagnostic, 'utf8').catch(() => '')
+    const dataDir = startupLog.match(/^data_dir=(.+)$/m)?.[1]?.trim()
     const diagnostics = await Promise.all([
       readFile(appStderr, 'utf8').catch(() => ''),
-      readFile(startupDiagnostic, 'utf8').catch(() => ''),
+      Promise.resolve(startupLog),
       readFile(path.join(expectedDataRoot, 'logs', 'core.log'), 'utf8').catch(() => ''),
+      dataDir ? readFile(path.join(dataDir, 'logs', 'core.log'), 'utf8').then((content) => `${dataDir}/logs/core.log\n${content}`).catch(() => '') : Promise.resolve(''),
       ...logFiles.map((file) => readFile(file, 'utf8').then((content) => `${file}\n${content}`).catch(() => '')),
     ])
     throw new Error(`Packaged desktop did not start its local core: ${exit?.message ?? 'timeout'}\n${stderr}\n${diagnostics.join('\n')}`)
