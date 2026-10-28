@@ -114,9 +114,11 @@ try {
     expectedDataRoot = path.join(home, 'Library', 'Application Support', 'com.mediagrab.desktop')
   } else {
     expectedDataRoot = path.join(temporaryDir, process.platform === 'win32' ? 'appdata' : 'xdg')
-    const dataKey = process.platform === 'win32' ? 'APPDATA' : 'XDG_DATA_HOME'
-    const existingDataKey = Object.keys(env).find((name) => name.toUpperCase() === dataKey) ?? dataKey
-    env[existingDataKey] = expectedDataRoot
+    const dataKeys = process.platform === 'win32' ? ['APPDATA', 'LOCALAPPDATA'] : ['XDG_DATA_HOME']
+    for (const dataKey of dataKeys) {
+      const existingDataKey = Object.keys(env).find((name) => name.toUpperCase() === dataKey) ?? dataKey
+      env[existingDataKey] = expectedDataRoot
+    }
   }
 
   const appStderr = path.join(temporaryDir, 'app.stderr.log')

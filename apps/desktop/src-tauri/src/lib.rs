@@ -209,7 +209,22 @@ fn resource_path(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|error| format!("无法定位应用资源目录: {error}"))?;
-    Ok(root.join(relative))
+    let direct = root.join(relative);
+    if direct.exists() {
+        return Ok(direct);
+    }
+
+    // Windows bundles can place a configured `resources/foo` directory next
+    // to the executable as `foo` while macOS keeps the source prefix under
+    // Contents/Resources. Accept both layouts so the installed app does not
+    // silently run without its bundled core.
+    if let Some(flattened) = relative.strip_prefix("resources/") {
+        let alternate = root.join(flattened);
+        if alternate.exists() {
+            return Ok(alternate);
+        }
+    }
+    Ok(direct)
 }
 
 fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
@@ -230,11 +245,11 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
     let node = core_dir.join(node_name);
     let entry = core_dir.join("dist/index.js");
     if !node.is_file() || !entry.is_file() {
-        eprintln!(
-            "mediaGrab core 未随当前构建提供，跳过自动启动: {}",
-            core_dir.display()
-        );
-        return Ok(None);
+        return Err(format!(
+            "mediaGrab core 未随当前构建提供: node={}, entry={}",
+            node.display(),
+            entry.display()
+        ));
     }
 
     let data_dir = app
