@@ -258,6 +258,15 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
     command
         .arg(&entry)
         .current_dir(&core_dir)
+        // The Windows release job also compiles FFmpeg through MSYS2. Do not
+        // leak its shell markers into the packaged Node process: they can
+        // change path handling for child tools even though the desktop app
+        // itself is a native Windows process.
+        .env_remove("MSYSTEM")
+        .env_remove("MSYS2_ARG_CONV_EXCL")
+        .env_remove("MSYS_NO_PATHCONV")
+        .env_remove("CHERE_INVOKING")
+        .env_remove("CYGWIN")
         .env("HOST", "127.0.0.1")
         .env("MEDIAGRAB_DESKTOP_CORE", "1")
         .env("MEDIAGRAB_CORE_TOKEN", token)

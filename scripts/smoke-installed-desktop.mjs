@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { connect } from 'node:net'
-import { cp, mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, readlink, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -41,6 +41,16 @@ function bundledNodeExecutable(pid) {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 10000 })
   if (result.status !== 0) throw new Error(`Cannot inspect bundled Node process: ${result.stderr?.trim()}`)
   return Promise.resolve(result.stdout.trim())
+}
+
+async function findFiles(directory, fileName, results = []) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const file = path.join(directory, entry.name)
+    if (entry.isDirectory()) await findFiles(file, fileName, results)
+    else if (entry.isFile() && entry.name.toLowerCase() === fileName.toLowerCase()) results.push(file)
+  }
+  return results
 }
 
 async function stopTree(child) {
@@ -85,6 +95,11 @@ try {
   for (const name of Object.keys(env)) {
     if (unsafeOverrides.has(name.toUpperCase())) delete env[name]
   }
+  if (process.platform === 'win32') {
+    for (const name of ['MSYSTEM', 'MSYS2_ARG_CONV_EXCL', 'MSYS_NO_PATHCONV', 'CHERE_INVOKING', 'CYGWIN']) {
+      delete env[name]
+    }
+  }
   // Windows environment variable names are case-insensitive; update the original
   // key rather than accidentally passing both "Path" and "PATH" to CreateProcess.
   const pathKey = Object.keys(env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH'
@@ -115,15 +130,20 @@ try {
   child.once('error', (error) => { exit = error })
   child.once('exit', (code, signal) => { exit = new Error(`desktop exited early (${code ?? signal})`) })
 
-  const deadline = Date.now() + 45_000
+  // Windows Defender can scan the freshly installed Node runtime and its
+  // dependency tree before the first child process reaches app.listen().
+  // Keep the smoke test strict, but allow that first-run cost on Windows.
+  const deadline = Date.now() + (process.platform === 'win32' ? 120_000 : 45_000)
   let health
   while (Date.now() < deadline && !health && !exit) {
     try { health = await getJson('/api/health') } catch { await new Promise((resolve) => setTimeout(resolve, 350)) }
   }
   if (!health) {
+    const logFiles = await findFiles(temporaryDir, 'core.log')
     const diagnostics = await Promise.all([
       readFile(appStderr, 'utf8').catch(() => ''),
       readFile(path.join(expectedDataRoot, 'logs', 'core.log'), 'utf8').catch(() => ''),
+      ...logFiles.map((file) => readFile(file, 'utf8').then((content) => `${file}\n${content}`).catch(() => '')),
     ])
     throw new Error(`Packaged desktop did not start its local core: ${exit?.message ?? 'timeout'}\n${stderr}\n${diagnostics.join('\n')}`)
   }
