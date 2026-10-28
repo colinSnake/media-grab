@@ -22,7 +22,7 @@
 - 已修复加入任务后平台来源筛选被自动切换的问题，当前筛选会保留，默认选中仍为“全部来源”。
 - 本轮基于当前工作树重新完成 macOS arm64 `pnpm build:desktop:release`；隔离目录验证 Node core、Fastify、前端静态资源、FFmpeg 和 yt-dlp 可用。最终 DMG 为 `apps/desktop/src-tauri/target/release/bundle/dmg/MediaGrab_0.1.0_aarch64.dmg`，约 82 MB，`hdiutil verify` 通过，SHA-256 为 `f825d78f89c991874ce38022eaa15acb4aa77b9dee2666984f0182c828350ebb`；主程序、Node 和 FFmpeg 均为 arm64，yt-dlp 为 universal。
 - 本轮从只读挂载的 DMG 经 macOS LaunchServices 启动 app，隔离 `HOME` 下完成安装包烟测：health 与 SQLite 可用、数据库位于隔离目录、运行时为包内 Node、未授权配置请求返回 `CORE_AUTH_REQUIRED`，退出后 9070 端口释放。首次直接执行 Mach-O 失败（Tauri 无法定位 app resources），已改为通过 `.app`/LaunchServices 启动并将烟测接入 macOS CI；Windows/Linux CI 烟测仍保持原有流程。
-- 手动运行 GitHub Actions `40652411148` 和 `40654344799`：共享类型检查与 304 项测试通过；Linux x64 完成构建及 deb/AppImage 安装烟测，macOS arm64 在 DMG 入口修复后通过。macOS x64 仍出现 core 启动超时，已增加 app stderr 与隔离 `core.log` 诊断；Windows x64 在 Node 24/Undici 下载阶段出现连接超时及 `assert(!this.paused)`，已改用系统 `curl` 重试下载并继续做 SHA-256 校验，待 CI 重跑。
+- 手动运行 GitHub Actions `40652411148`、`40654344799`、`40657329835`、`40659081743`：共享类型检查与 304 项测试通过；Linux x64 构建及安装烟测通过，macOS arm64/x64 在 DMG 烟测入口修复后均通过。Windows x64 已解决 Node 24/Undici 下载不完整响应崩溃，并修复 `npm_execpath` 下 pnpm 版本检测；最新失败转为 MSYS2 的 `MSYSTEM=UCRT64` 环境使 pnpm deploy 错误拼接 Windows 临时绝对路径，已在 pnpm 子进程中移除该变量，待 CI 重跑验证。
 - 任务取消/恢复、WebSocket 与媒体预览交互、历史文件重下、端口抢占提示及真实平台样本仍未验收；本轮没有停止用户进程，也没有清理仓库 `data/`。
 
 ## A0：产品重启

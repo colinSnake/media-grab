@@ -14,7 +14,9 @@ const nodeSource = process.env.MEDIA_GRAB_NODE_BIN?.trim() || process.execPath
 
 function run(command, args, env = {}) {
   [command, args] = pnpmInvocation(command, args)
-  execFileSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } })
+  const childEnv = { ...process.env, ...env }
+  if (process.platform === 'win32') delete childEnv.MSYSTEM
+  execFileSync(command, args, { cwd: root, stdio: 'inherit', env: childEnv })
 }
 
 function pnpmInvocation(command, args) {
