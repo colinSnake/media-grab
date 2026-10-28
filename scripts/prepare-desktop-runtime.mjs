@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const runtimeDir = path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'core')
-const temporaryDir = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-deploy-'))
+const temporaryRoot = process.platform === 'win32' ? path.join(root, '.tmp') : os.tmpdir()
+await mkdir(temporaryRoot, { recursive: true })
+const temporaryDir = await mkdtemp(path.join(temporaryRoot, 'mediagrab-deploy-'))
 const deployDir = path.join(temporaryDir, 'server')
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
 const nodeSource = process.env.MEDIA_GRAB_NODE_BIN?.trim() || process.execPath
