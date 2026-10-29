@@ -88,6 +88,15 @@ jobs:
           repository: ${{ github.repository }}
           path: artifacts/linux-x64
 
+      - name: Download media-tool sources and build records
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MediaGrab-*-tool-sources
+          path: tool-sources
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+
       - name: Verify installers and prepare release assets
         shell: bash
         run: |
@@ -96,14 +105,29 @@ jobs:
           for target in darwin-arm64 darwin-x64 win32-x64 linux-x64; do
             info="artifacts/$target/build-info.json"
             [[ -s "$info" ]] || { echo "Missing build metadata for $target" >&2; exit 1; }
+            (cd "artifacts/$target" && sha256sum --check SHA256SUMS)
             [[ "$(jq -r '.commit' "$info")" == "$(git rev-parse HEAD)" ]] || { echo "Build metadata commit mismatch for $target" >&2; exit 1; }
           done
           find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -print0 |
             while IFS= read -r -d '' file; do cp "$file" release-assets/; done
           count=$(find release-assets -maxdepth 1 -type f | wc -l)
           [[ "$count" -eq 5 ]] || { echo "Expected 5 installers, found $count" >&2; exit 1; }
-          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage > SHA256SUMS.txt)
+          for target in darwin-arm64 darwin-x64 win32-x64 linux-x64; do
+            source_dir="tool-sources/MediaGrab-$target-tool-sources"
+            test -d "$source_dir/sources"
+            test -d "$source_dir/build-records"
+            tar -czf "release-assets/MediaGrab-$target-tool-sources.tar.gz" -C "$source_dir" sources build-records
+          done
+          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage *.tar.gz > SHA256SUMS.txt)
           ls -lh release-assets
 
-      - name: Create draft release
-        run: gh release create "$RELEASE_TAG" release-assets/* --draft --verify-tag --generate-notes --title "MediaGrab $RELEASE_TAG"
+      - name: Create or resume draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > existing-release.json; then
+            jq --exit-status '.isDraft == true' existing-release.json > /dev/null || { echo "Refusing to replace assets of a published release" >&2; exit 1; }
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --draft --verify-tag --generate-notes --title "MediaGrab $RELEASE_TAG"
+          fi

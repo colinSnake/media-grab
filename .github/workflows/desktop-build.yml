@@ -174,6 +174,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Download macOS arm64 installers
         uses: actions/download-artifact@v4
@@ -195,6 +196,11 @@ jobs:
         with:
           name: MediaGrab-linux-x64
           path: artifacts/linux-x64
+      - name: Download media-tool sources and build records
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MediaGrab-*-tool-sources
+          path: tool-sources
       - name: Prepare release assets
         shell: bash
         run: |
@@ -206,7 +212,13 @@ jobs:
             done
           count=$(find release-assets -maxdepth 1 -type f | wc -l)
           test "$count" -eq 5 || { echo "Expected 5 installers, found $count" >&2; exit 1; }
-          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage > SHA256SUMS.txt)
+          for target in darwin-arm64 darwin-x64 win32-x64 linux-x64; do
+            source_dir="tool-sources/MediaGrab-$target-tool-sources"
+            test -d "$source_dir/sources"
+            test -d "$source_dir/build-records"
+            tar -czf "release-assets/MediaGrab-$target-tool-sources.tar.gz" -C "$source_dir" sources build-records
+          done
+          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage *.tar.gz > SHA256SUMS.txt)
           ls -lh release-assets
       - name: Create draft release
         env:
