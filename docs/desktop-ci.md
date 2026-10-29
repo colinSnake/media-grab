@@ -15,9 +15,9 @@ gh run list --workflow desktop-build.yml
 
 自动构建只在**推送分支时，推送后的最新一条提交信息包含 `build-ci-cd`** 才运行。示例：`git commit -m "build-ci-cd: 验证桌面安装包"`，再推送该分支。该标记只检查最新提交；一次推送多个提交时，请把标记放在最后一个。普通提交的工作流记录会显示为 skipped，不分配测试或打包 runner，也不会取消进行中的正式构建；这是 GitHub Actions 原生 `push` 不支持直接按提交信息过滤的限制。需要完全不产生普通推送的工作流记录时，只能采用纯手动触发等其他机制。
 
-推送 `v*` 标签**不再自动构建**；仍可选择目标 ref 手动运行。若手动选择版本标签，标签必须与根目录 `package.json`、`apps/desktop/src-tauri/tauri.conf.json` 和 `apps/desktop/src-tauri/Cargo.toml` 的版本一致。例如，三个文件都是 `0.1.0` 时使用 `v0.1.0`。
+推送 `v*` 标签会自动构建并在四目标构建和安装后烟测全部通过后创建 Draft Release。版本标签必须与根目录 `package.json`、`apps/desktop/src-tauri/tauri.conf.json` 和 `apps/desktop/src-tauri/Cargo.toml` 的版本一致。例如，三个文件都是 `0.1.0` 时使用 `v0.1.0`。
 
-工作流只生成并上传 Actions artifacts，不创建 GitHub Release，也不公开发布安装包。无需配置个人访问令牌或额外 Secrets；工作流的 `GITHUB_TOKEN` 只需要读取仓库权限。
+分支构建只上传 Actions artifacts；标签构建额外创建 Draft Release，审核后再公开发布。无需配置个人访问令牌或额外 Secrets；发布作业使用 `GITHUB_TOKEN` 的 `contents: write` 和 `actions: read` 权限。
 
 ## 下载产物
 
@@ -33,6 +33,22 @@ gh run list --workflow desktop-build.yml
 每份安装包 artifact 还包含 `SHA256SUMS`、`build-info.json`、工具版本清单及许可证。对应的 `MediaGrab-<系统架构>-tool-sources` artifact 包含 FFmpeg/LAME 源码、构建日志和重新链接所需的构建目录。对外分发安装包时，同时保留并提供对应的工具源码和构建记录。
 
 成功产物保留 30 天；失败诊断保留 7 天。需要长期保存时，请下载留存，或者在后续发行流程中上传到正式 Release。各平台互不取消，一组失败时其余组仍会继续。
+
+## 发布既有成功构建
+
+已有成功构建时，打开 **Actions → Publish existing desktop build → Run workflow**，选择 `main`，填写 `build_run_id` 和 `tag_name`。版本标签必须先存在，且指向该次构建的完整提交 SHA。
+
+例如，`v0.1.0` 对应构建 `40686360439`、提交 `1bbee62f3956d595ca7831842d05809f085ce934`，其发布命令为：
+
+```bash
+gh workflow run publish-existing-build.yml --ref main \
+  -f build_run_id=40686360439 \
+  -f tag_name=v0.1.0
+```
+
+工作流会核对成功状态、源工作流名称、标签版本、构建 SHA 和四平台构建记录，检查原始 `SHA256SUMS`，再下载并上传产物。Release 附件包含 5 个安装包、4 份工具源码/构建记录压缩包和覆盖全部附件的 `SHA256SUMS.txt`。若同版本草稿已存在，可重跑补齐附件；已公开的 Release 不会被覆盖。历史 Actions artifacts 必须尚未过期。
+
+执行成功后，在仓库 **Releases** 页面检查草稿与附件，再点击 **Publish release**；早期验收版本建议标记为预发布。后续新版本也可以直接推送匹配版本的 `v*` 标签，从检查和构建开始自动生成草稿。
 
 ## 构建过程
 
