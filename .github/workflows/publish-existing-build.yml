@@ -1,0 +1,109 @@
+name: Publish existing desktop build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Desktop builds run ID containing the installers
+        required: true
+        type: string
+      tag_name:
+        description: Existing version tag pointing to the exact build commit, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    name: Validate and publish existing build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      RELEASE_TAG: ${{ inputs.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate run ID and version tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Verify build provenance and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID")
+          run_sha=$(jq -r '.head_sha' <<< "$run_json")
+          run_result=$(jq -r '.conclusion' <<< "$run_json")
+          run_workflow=$(jq -r '.name' <<< "$run_json")
+          tag_sha=$(git rev-parse "$RELEASE_TAG^{commit}")
+          source_version=$(git show "$RELEASE_TAG:package.json" | jq -r '.version')
+          [[ "$run_result" == success ]] || { echo "Build run did not succeed: $run_result" >&2; exit 1; }
+          [[ "$run_workflow" == "Desktop builds" ]] || { echo "Unexpected source workflow: $run_workflow" >&2; exit 1; }
+          [[ "$run_sha" == "$tag_sha" ]] || { echo "Tag commit $tag_sha does not match build commit $run_sha" >&2; exit 1; }
+          [[ "$RELEASE_TAG" == "v$source_version" ]] || { echo "Tag $RELEASE_TAG does not match source version $source_version" >&2; exit 1; }
+          echo "Publishing $RELEASE_TAG from verified build $BUILD_RUN_ID ($run_sha)"
+
+      - name: Download macOS arm64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-darwin-arm64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: artifacts/darwin-arm64
+      - name: Download macOS x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-darwin-x64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: artifacts/darwin-x64
+      - name: Download Windows x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-win32-x64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: artifacts/win32-x64
+      - name: Download Linux x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-linux-x64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: artifacts/linux-x64
+
+      - name: Verify installers and prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          for target in darwin-arm64 darwin-x64 win32-x64 linux-x64; do
+            info="artifacts/$target/build-info.json"
+            [[ -s "$info" ]] || { echo "Missing build metadata for $target" >&2; exit 1; }
+            [[ "$(jq -r '.commit' "$info")" == "$(git rev-parse HEAD)" ]] || { echo "Build metadata commit mismatch for $target" >&2; exit 1; }
+          done
+          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -print0 |
+            while IFS= read -r -d '' file; do cp "$file" release-assets/; done
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          [[ "$count" -eq 5 ]] || { echo "Expected 5 installers, found $count" >&2; exit 1; }
+          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage > SHA256SUMS.txt)
+          ls -lh release-assets
+
+      - name: Create draft release
+        run: gh release create "$RELEASE_TAG" release-assets/* --draft --verify-tag --generate-notes --title "MediaGrab $RELEASE_TAG"
