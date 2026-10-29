@@ -14,6 +14,21 @@
 
 MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链接解析、视频/音频选择、下载进度和任务历史放到同一个桌面应用里。项目从解决“工具分散、资源看不懂、下载过程难追踪”开始：让用户知道链接里有什么、当前账号实际能获取什么，以及每个任务最后发生了什么。
 
+## 下载 v0.1.0
+
+[前往 Release 下载页面](https://github.com/colinSnake/media-grab/releases/tag/v0.1.0) — 首个桌面**预发布版本**，发布于 2026 年 10 月 29 日。提供链接解析、视频/音频选择、下载进度和任务历史等功能，安装包已内置 Node.js、FFmpeg 和 yt-dlp，无需另外安装这些工具。
+
+在发布页面的 **Assets（附件）** 中选择对应系统的安装包：
+
+| 系统 | 安装包 |
+| --- | --- |
+| macOS Apple Silicon（M 系列芯片） | `MediaGrab_0.1.0_aarch64.dmg` |
+| macOS Intel | `MediaGrab_0.1.0_x64.dmg` |
+| Windows x64（Intel/AMD 64 位） | `MediaGrab_0.1.0_x64-setup.exe` |
+| Linux x64 | `MediaGrab_0.1.0_amd64.deb` 或 `MediaGrab_0.1.0_amd64.AppImage` |
+
+四个构建目标均已通过 CI 构建和安装后烟测。当前仍是早期预览版：安装包尚未签名或完成 Apple 公证，实机验收仍在继续。附件同时提供 `SHA256SUMS.txt` 校验清单和媒体工具源码/构建记录压缩包。
+
 ## 项目缘起与愿景
 
 保存一段自己有权访问的媒体，常常要在浏览器、命令行、格式转换工具和一堆文件之间来回切换。MediaGrab 希望把这条流程变成一件可理解、可管理的本地工作：粘贴链接，检查资源，选择产物，跟踪任务，最后在电脑上找到文件。
@@ -88,7 +103,7 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 
 ### 当前发行限制
 
-发行构建会准备随包提供的 Node.js/Fastify 核心，并对 FFmpeg/yt-dlp 的输入和版本进行校验。CI 已配置三端工具版本、许可证和构建记录；云端三端构建及真实安装验收仍需实际运行验证，签名和 Apple 公证尚未接入，因此当前产物仍属于测试阶段桌面包。Rust 负责 Tauri 桌面外壳和原生系统集成，不替换现有 Node 业务核心。
+发行构建会准备随包提供的 Node.js/Fastify 核心，并对 FFmpeg/yt-dlp 的输入和版本进行校验。macOS arm64/x64、Windows x64、Linux x64 均已通过 CI 构建和安装后烟测，v0.1.0 预发布已公开；签名、Apple 公证和更完整的实机验收仍待完成。Rust 负责 Tauri 桌面外壳和原生系统集成，不替换现有 Node 业务核心。
 
 ## 开发
 

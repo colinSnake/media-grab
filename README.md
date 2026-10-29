@@ -14,6 +14,21 @@
 
 MediaGrab brings link parsing, media selection, downloads, and task history into one focused desktop workspace. The project began as an effort to make saving authorized media less scattered and more understandable: one place to see what a link contains, what can actually be downloaded, and what happened to each task.
 
+## Download v0.1.0
+
+[Download MediaGrab v0.1.0](https://github.com/colinSnake/media-grab/releases/tag/v0.1.0) — the first desktop **pre-release**, published on October 29, 2026. It brings link parsing, video/audio selection, download tracking, and task history into one local workspace. Installers include Node.js, FFmpeg, and yt-dlp, so these tools do not need to be installed separately.
+
+Choose the installer for your system from the release page's **Assets**:
+
+| System | Installer |
+| --- | --- |
+| macOS Apple Silicon (M series) | `MediaGrab_0.1.0_aarch64.dmg` |
+| macOS Intel | `MediaGrab_0.1.0_x64.dmg` |
+| Windows x64 (64-bit Intel/AMD) | `MediaGrab_0.1.0_x64-setup.exe` |
+| Linux x64 | `MediaGrab_0.1.0_amd64.deb` or `MediaGrab_0.1.0_amd64.AppImage` |
+
+All four build targets passed CI builds and installed-package smoke tests. This is an early preview: installers are unsigned and have not been notarized by Apple, and real-device testing is ongoing. The release also includes `SHA256SUMS.txt` and media-tool source/build archives.
+
 ## Why MediaGrab
 
 Media workflows are often split between browser tabs, command-line tools, format guesswork, and files with unclear names. MediaGrab aims to make that process feel like a dependable local tool instead: paste a link, inspect the available media, choose an output, and follow the task through to a file on your computer.
@@ -88,7 +103,7 @@ For development, `pnpm dev:desktop` starts the Tauri window, Vite frontend, and 
 
 ## Project status
 
-MediaGrab is under active development. The macOS shell and bundled Node core build locally; Windows and Linux packaging, pinned media-tool artifacts, third-party license notices, signing, and installed-package workflows still require release-runner validation. Treat generated bundles as development artifacts rather than polished releases.
+MediaGrab is under active development. The v0.1.0 desktop pre-release is available for macOS arm64/x64, Windows x64, and Linux x64, with CI builds and installed-package smoke tests passing for all four targets. Code signing, Apple notarization, and broader real-device testing remain pending; see the [roadmap](./docs/ROADMAP.md) for validation still in progress.
 
 ## Documentation
 
