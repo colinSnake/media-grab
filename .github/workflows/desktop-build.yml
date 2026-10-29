@@ -7,6 +7,8 @@ on:
   push:
     branches:
       - '**'
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -24,7 +26,7 @@ env:
 jobs:
   checks:
     name: Type checks and tests
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'build-ci-cd') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_type == 'tag' || contains(github.event.head_commit.message, 'build-ci-cd') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -163,3 +165,50 @@ jobs:
             apps/desktop/src-tauri/resources/media-tools/${{ matrix.target }}/tools-manifest.json
           if-no-files-found: ignore
           retention-days: 7
+
+  release:
+    name: Create draft GitHub Release
+    needs: build
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS arm64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-darwin-arm64
+          path: artifacts/darwin-arm64
+      - name: Download macOS x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-darwin-x64
+          path: artifacts/darwin-x64
+      - name: Download Windows x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-win32-x64
+          path: artifacts/win32-x64
+      - name: Download Linux x64 installers
+        uses: actions/download-artifact@v4
+        with:
+          name: MediaGrab-linux-x64
+          path: artifacts/linux-x64
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -print0 |
+            while IFS= read -r -d '' file; do
+              cp "$file" release-assets/
+            done
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          test "$count" -eq 5 || { echo "Expected 5 installers, found $count" >&2; exit 1; }
+          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage > SHA256SUMS.txt)
+          ls -lh release-assets
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --draft --verify-tag --generate-notes --title "MediaGrab $GITHUB_REF_NAME"
