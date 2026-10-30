@@ -6,7 +6,15 @@ export type AccountPlatform = z.infer<typeof accountPlatformSchema>
 export const accountStatusSchema = z.enum(['active', 'invalid', 'needs-login'])
 export type AccountStatus = z.infer<typeof accountStatusSchema>
 
-/** 前端可见的账号摘要；绝不包含 Cookie、令牌或其它凭据。 */
+/** JWE compact serialization: direct key management with AES-256-GCM. */
+export const credentialEncryptionHeader = 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0'
+
+/** 完整加密 Cookie；不包含明文或解密密钥。 */
+export const credentialPreviewSchema = z.string().regex(new RegExp(
+  `^${credentialEncryptionHeader}\\.\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{22}$`,
+)).nullable().optional()
+
+/** 前端可见的账号摘要；仅可包含 Cookie 密文，绝不包含原文或解密密钥。 */
 export const accountSummarySchema = z.object({
   id: z.string().min(1),
   platform: accountPlatformSchema,
@@ -17,6 +25,7 @@ export const accountSummarySchema = z.object({
   status: accountStatusSchema,
   active: z.boolean(),
   lastVerifiedAt: z.number().int().nullable(),
+  credentialPreview: credentialPreviewSchema,
 })
 export type AccountSummary = z.infer<typeof accountSummarySchema>
 
@@ -40,7 +49,7 @@ export const platformCookieSchema = z.object({
 })
 export type PlatformCookieInput = z.infer<typeof platformCookieSchema>
 
-export const cookieStatusSchema = z.object({ configured: z.boolean() })
+export const cookieStatusSchema = z.object({ configured: z.boolean(), credentialPreview: credentialPreviewSchema })
 export type CookieStatus = z.infer<typeof cookieStatusSchema>
 
 export const douyinCookieSchema = platformCookieSchema

@@ -1,6 +1,6 @@
 [package]
 name = "mediagrab-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "MediaGrab desktop shell"
 authors = ["mediaGrab"]
 license = "MIT"

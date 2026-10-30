@@ -1,12 +1,90 @@
-import { Check, FolderOpen, LoaderCircle, ShieldCheck, Trash2, UserRound, UsersRound, X } from 'lucide-react'
+import { Check, FolderOpen, LoaderCircle, UserRound, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { AccountPlatform, AccountSummary, AppConfigPatch, CookieAccountPlatform, CookieStatus, DownloadMode } from '@mediagrab/shared'
 import { modeOptions } from '../lib/options'
 import { platformLabel } from '@mediagrab/shared'
 import { PlatformLogo } from './PlatformLogo'
+import { encryptCookieForDisplay } from '../lib/cookie-encryption'
 
 type SettingsAccountPlatform = AccountPlatform | 'youtube'
-type CookieAccountState = CookieStatus & { cookie: string; saving: boolean }
+type CookieAccountState = CookieStatus & { cookie: string; saving: boolean; authFailed: boolean }
 type SettingField = 'savePath' | 'ytDlpPath' | 'defaultDownloadMode'
+
+function CookieInput({ platform, cookie, credentialPreview, disabled, onChange }: {
+  platform: string
+  cookie: string
+  credentialPreview?: string | null
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const [dismissedPreview, setDismissedPreview] = useState<string | null>(null)
+  const [draftCiphertext, setDraftCiphertext] = useState('')
+  const [encryptionFailed, setEncryptionFailed] = useState(false)
+  const [draftRevision, setDraftRevision] = useState(0)
+  useEffect(() => {
+    let active = true
+    setDraftCiphertext('')
+    setEncryptionFailed(false)
+    if (cookie) {
+      void encryptCookieForDisplay(cookie).then((ciphertext) => {
+        if (active) setDraftCiphertext(ciphertext)
+      }).catch(() => {
+        if (active) setEncryptionFailed(true)
+      })
+    }
+    return () => { active = false }
+  }, [cookie, draftRevision])
+  const displayValue = cookie
+    ? draftCiphertext || (encryptionFailed ? '加密失败，请重新粘贴' : '正在加密')
+    : credentialPreview && credentialPreview !== dismissedPreview ? credentialPreview : ''
+  // Paste is intercepted so Cookie bytes never become the textarea's DOM value.
+  return <textarea
+    aria-label={`${platform} Cookie`}
+    aria-description="粘贴后显示完整加密字符串，可以选中复制；点击保存后生效，粘贴新的 Cookie 可替换"
+    className="account-cookie-input"
+    value={displayValue}
+    placeholder={`粘贴${platform} Cookie`}
+    title={cookie ? '待保存，当前显示完整 JWE 密文' : credentialPreview ? '已加密保存，当前显示完整 JWE 密文，粘贴 Cookie 可替换' : undefined}
+    onChange={(event) => {
+      // Ciphertext is display-only: editing it must never submit it as a Cookie.
+      // Keep the native editable caret and selection; replace credentials through paste/drop.
+      event.currentTarget.value = displayValue
+    }}
+    disabled={disabled}
+    onPaste={(event) => {
+      event.preventDefault()
+      if (!disabled) {
+        setDismissedPreview(null)
+        setDraftCiphertext('')
+        setEncryptionFailed(false)
+        setDraftRevision((current) => current + 1)
+        onChange(event.clipboardData.getData('text/plain'))
+      }
+    }}
+    onDragOver={(event) => event.preventDefault()}
+    onDrop={(event) => {
+      event.preventDefault()
+      if (!disabled) {
+        setDismissedPreview(null)
+        setDraftCiphertext('')
+        setEncryptionFailed(false)
+        setDraftRevision((current) => current + 1)
+        onChange(event.dataTransfer.getData('text/plain'))
+      }
+    }}
+    onKeyDown={(event) => {
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        event.preventDefault()
+        if (!disabled) {
+          setDismissedPreview(credentialPreview ?? null)
+          onChange('')
+        }
+      }
+    }}
+    autoComplete="off"
+    spellCheck={false}
+  />
+}
 
 interface SettingsModalProps {
   open: boolean
@@ -20,14 +98,13 @@ interface SettingsModalProps {
   activeAccountPlatform: SettingsAccountPlatform
   onAccountPlatformChange: (platform: SettingsAccountPlatform) => void
   accountCookie: string
+  biliAuthFailed: boolean
   isSavingAccount: boolean
   onAccountCookieChange: (value: string) => void
   onClose: () => void
   onSaveAccount: () => void
   onClearBiliCookie: () => void
-  onActivateAccount: (id: string) => void
   onVerifyAccount: (id: string) => void
-  onDeleteAccount: (id: string) => void
   cookieAccounts: Record<CookieAccountPlatform, CookieAccountState>
   onCookieChange: (platform: CookieAccountPlatform, value: string) => void
   onSaveCookie: (platform: CookieAccountPlatform) => void
@@ -46,14 +123,13 @@ export function SettingsModal({
   activeAccountPlatform,
   onAccountPlatformChange,
   accountCookie,
+  biliAuthFailed,
   isSavingAccount,
   onAccountCookieChange,
   onClose,
   onSaveAccount,
   onClearBiliCookie,
-  onActivateAccount,
   onVerifyAccount,
-  onDeleteAccount,
   cookieAccounts,
   onCookieChange,
   onSaveCookie,
@@ -92,17 +168,16 @@ export function SettingsModal({
             ] as const).map(([platform, label]) => <button key={platform} type="button" role="tab" data-platform={platform} aria-selected={activeAccountPlatform === platform} className={activeAccountPlatform === platform ? 'active' : ''} onClick={() => onAccountPlatformChange(platform)}><PlatformLogo platform={platform} /><span>{label}</span></button>)}
           </div>
           {activeAccountPlatform === 'bilibili' && <div className="platform-account-panel">
-          <div className="account-section-heading"><div><h3><UserRound /> B站</h3></div>{activeBiliAccount && <button className="account-action" type="button" title="验证B站 Cookie" aria-label="验证B站 Cookie" aria-busy={accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify'} onClick={() => onVerifyAccount(activeBiliAccount.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify' ? <LoaderCircle className="spin" /> : <Check />}</button>}</div>
-          <label className="field-label">B站鉴权信息<textarea className="account-cookie-input" value={accountCookie} onChange={(event) => onAccountCookieChange(event.target.value)} placeholder="粘贴B站 Cookie" autoComplete="off" spellCheck={false} /></label>
+          <div className="account-section-heading"><div><h3><UserRound /> B站</h3><span className={`auth-status ${biliAuthFailed ? 'failed' : activeBiliAccount?.status === 'active' ? 'success' : ''}`}>{biliAuthFailed ? '（认证失败，认证信息不对，请重试）' : activeBiliAccount?.status === 'active' ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div>{activeBiliAccount && <button className="account-action" type="button" title="验证B站 Cookie" aria-label="验证B站 Cookie" aria-busy={accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify'} onClick={() => onVerifyAccount(activeBiliAccount.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify' ? <LoaderCircle className="spin" /> : <Check />}</button>}</div>
+          <CookieInput platform="B站" cookie={accountCookie} credentialPreview={activeBiliAccount?.credentialPreview} disabled={isSavingAccount || accountAction !== null} onChange={onAccountCookieChange} />
           <div className="platform-cookie-actions"><button className="account-import-button" type="button" onClick={onSaveAccount} disabled={isSavingAccount || accountAction !== null || accountCookie.trim() === ''} aria-busy={isSavingAccount}>{isSavingAccount ? '正在保存' : '保存'}</button><button className="account-clear-button" type="button" onClick={onClearBiliCookie} disabled={isSavingAccount || accountAction !== null || (!activeBiliAccount && accountCookie === '')} aria-busy={isClearingBili}>{isClearingBili ? '正在清空' : '清空'}</button></div>
-          {accounts.filter((account) => account.platform === 'bilibili').length > 1 && <details className="account-management"><summary><UsersRound /> 管理已保存账号</summary><div className="account-list">{accounts.filter((account) => account.platform === 'bilibili').map((account) => <div className={`account-row ${account.active ? 'active' : ''}`} key={account.id}><span className="account-avatar"><UserRound /></span><span className="account-copy"><strong>{account.displayName || account.label}</strong><small>{account.active ? '当前使用' : account.status === 'active' ? '已验证' : '需要重新登录'}</small></span>{!account.active && <button className="account-action" type="button" title="切换账号" aria-label={`切换到${account.displayName || account.label}`} onClick={() => onActivateAccount(account.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === account.id && accountAction.action === 'activate' ? <LoaderCircle className="spin" /> : <ShieldCheck />}</button>}{!account.active && <button className="account-action danger" type="button" title="删除账号" aria-label={`删除${account.displayName || account.label}`} onClick={() => onDeleteAccount(account.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === account.id && accountAction.action === 'delete' ? <LoaderCircle className="spin" /> : <Trash2 />}</button>}</div>)}</div></details>}
           </div>}
           {(activeAccountPlatform === 'douyin' || activeAccountPlatform === 'xiaohongshu' || activeAccountPlatform === 'youtube') && (() => {
             const platform = activeAccountPlatform
             const account = cookieAccounts[platform]
             return <div className="platform-account-panel">
-              <div className="account-section-heading"><div><h3><PlatformLogo platform={platform} /> {platformLabel[platform]}</h3></div></div>
-              <label className="field-label">{platformLabel[platform]}鉴权信息<textarea className="account-cookie-input" value={account.cookie} onChange={(event) => onCookieChange(platform, event.target.value)} placeholder={`粘贴${platformLabel[platform]} Cookie`} autoComplete="off" spellCheck={false} /></label>
+              <div className="account-section-heading"><div><h3><PlatformLogo platform={platform} /> {platformLabel[platform]}</h3><span className={`auth-status ${account.authFailed ? 'failed' : account.configured ? 'success' : ''}`}>{account.authFailed ? '（认证失败，认证信息不对，请重试）' : account.configured ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div></div>
+              <CookieInput key={platform} platform={platformLabel[platform]} cookie={account.cookie} credentialPreview={account.credentialPreview} disabled={account.saving || accountAction !== null} onChange={(value) => onCookieChange(platform, value)} />
               <div className="platform-cookie-actions">
                 <button className="account-import-button" type="button" onClick={() => onSaveCookie(platform)} disabled={accountAction !== null || account.saving || account.cookie.trim() === ''} aria-busy={account.saving}>{account.saving ? '正在保存' : '保存'}</button>
                 <button className="account-clear-button" type="button" onClick={() => onClearCookie(platform)} disabled={accountAction !== null || account.saving || (!account.configured && account.cookie === '')} aria-busy={accountAction?.id === `cookie:${platform}` && accountAction.action === 'clear-cookie'}>{accountAction?.id === `cookie:${platform}` && accountAction.action === 'clear-cookie' ? '正在清空' : '清空'}</button>

@@ -353,7 +353,7 @@ describe('配置落库（M1-6 / NFR-10）', () => {
 })
 
 describe('抖音 Cookie API', () => {
-  it('只返回是否已配置，不在响应中回显 Cookie', async () => {
+  it('返回配置状态和完整密文，不在响应中回显 Cookie 明文', async () => {
     const { app: instance } = await setup()
     const saved = await instance.inject({
       method: 'POST',
@@ -361,17 +361,17 @@ describe('抖音 Cookie API', () => {
       payload: { cookie: 'sessionid=do-not-return-this' },
     })
     expect(saved.statusCode).toBe(200)
-    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.json()).toEqual({ configured: true, credentialPreview: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/) })
     expect(saved.body).not.toContain('do-not-return-this')
 
     const status = await instance.inject({ method: 'GET', url: '/api/accounts/douyin/cookie' })
-    expect(status.json()).toEqual({ configured: true })
+    expect(status.json()).toEqual(saved.json())
 
     const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/douyin/cookie' })
-    expect(cleared.json()).toEqual({ configured: false })
+    expect(cleared.json()).toEqual({ configured: false, credentialPreview: null })
   })
 
-  it('小红书 Cookie API 仅回传配置状态', async () => {
+  it('小红书 Cookie API 回传配置状态和完整密文', async () => {
     const { app: instance } = await setup()
     const saved = await instance.inject({
       method: 'POST',
@@ -379,13 +379,13 @@ describe('抖音 Cookie API', () => {
       payload: { cookie: 'web_session=do-not-return-this' },
     })
     expect(saved.statusCode).toBe(200)
-    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.json()).toEqual({ configured: true, credentialPreview: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/) })
     expect(saved.body).not.toContain('do-not-return-this')
     const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/xiaohongshu/cookie' })
-    expect(cleared.json()).toEqual({ configured: false })
+    expect(cleared.json()).toEqual({ configured: false, credentialPreview: null })
   })
 
-  it('YouTube Cookie API 仅回传配置状态', async () => {
+  it('YouTube Cookie API 回传配置状态和完整密文', async () => {
     const { app: instance } = await setup()
     const saved = await instance.inject({
       method: 'POST',
@@ -393,12 +393,12 @@ describe('抖音 Cookie API', () => {
       payload: { cookie: 'SID=do-not-return-this' },
     })
     expect(saved.statusCode).toBe(200)
-    expect(saved.json()).toEqual({ configured: true })
+    expect(saved.json()).toEqual({ configured: true, credentialPreview: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/) })
     expect(saved.body).not.toContain('do-not-return-this')
     const status = await instance.inject({ method: 'GET', url: '/api/accounts/youtube/cookie' })
-    expect(status.json()).toEqual({ configured: true })
+    expect(status.json()).toEqual(saved.json())
     const cleared = await instance.inject({ method: 'DELETE', url: '/api/accounts/youtube/cookie' })
-    expect(cleared.json()).toEqual({ configured: false })
+    expect(cleared.json()).toEqual({ configured: false, credentialPreview: null })
   })
 
   it('Cookie 平台参数拒绝未知来源', async () => {

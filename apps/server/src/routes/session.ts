@@ -44,20 +44,20 @@ export const sessionRoutes: FastifyPluginAsync<SessionRoutesDeps> = async (app, 
 
   app.get('/api/accounts/:platform/cookie', async (req) => {
     const { platform } = parseBody(cookieAccountParamsSchema, req.params)
-    return { configured: opts.services.accountService.cookieConfigured(platform) }
+    return opts.services.accountService.cookieStatus(platform)
   })
 
   app.post('/api/accounts/:platform/cookie', async (req) => {
     const { platform } = parseBody(cookieAccountParamsSchema, req.params)
     const body = parseBody(platformCookieSchema, req.body)
     opts.services.accountService.saveCookie(platform, body.cookie)
-    return { configured: true }
+    return opts.services.accountService.cookieStatus(platform)
   })
 
   app.delete('/api/accounts/:platform/cookie', async (req) => {
     const { platform } = parseBody(cookieAccountParamsSchema, req.params)
     opts.services.accountService.clearCookie(platform)
-    return { configured: false }
+    return opts.services.accountService.cookieStatus(platform)
   })
 
   app.post('/api/accounts/bilibili', async (req) => {

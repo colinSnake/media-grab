@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultAppConfig } from '@mediagrab/shared'
+import { credentialPreviewSchema, defaultAppConfig } from '@mediagrab/shared'
 import { AccountService } from './account-service.js'
 import { CredentialVault } from './credential-vault.js'
 import { Database } from '../store/db.js'
@@ -75,6 +75,8 @@ describe('AccountService', () => {
     const result = await service.importBili('我的 B站', 'SESSDATA=secret; bili_jct=csrf; ignored=x')
     expect(result).toMatchObject({ label: '我的 B站', displayName: '测试用户', loggedIn: true, vip: true, active: true })
     expect(JSON.stringify(result)).not.toContain('secret')
+    expect(credentialPreviewSchema.parse(result.credentialPreview)).toBe(result.credentialPreview)
+    expect(service.list().find((account) => account.id === result.id)?.credentialPreview).toBe(result.credentialPreview)
     expect(fake.calls[0]?.headers.cookie).toContain('buvid3=DEVICE')
     expect(fake.calls[0]?.headers.cookie).toContain('SESSDATA=secret')
     expect(service.cookieHeader()).toContain('SESSDATA=secret')

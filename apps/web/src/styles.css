@@ -478,7 +478,7 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .text-action:hover { border-color: var(--purple); background: color-mix(in srgb, var(--purple) 18%, var(--control-selected)); }
 
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 18px; background: var(--overlay); backdrop-filter: blur(8px); }
-.settings-modal { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 80px); overflow: auto; padding: 20px 28px 17px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 20px 65px color-mix(in srgb, var(--bg) 45%, transparent); }
+.settings-modal { width: min(740px, calc(100vw - 48px)); max-height: calc(100dvh - 80px); overflow: auto; padding: 20px 24px 17px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 20px 65px color-mix(in srgb, var(--bg) 45%, transparent); }
 .settings-modal .modal-heading { margin-bottom: 10px; }
 .settings-modal .field-label { margin: 10px 0; }
 .settings-modal .field-label > .settings-field-error,
@@ -486,8 +486,9 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .settings-modal .field-label [aria-invalid='true'],
 :root[data-theme='light'] .settings-modal .field-label [aria-invalid='true'] { border-color: var(--red); }
 .settings-modal .account-platform-tabs { margin-bottom: 12px; }
-.settings-layout { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); gap: 28px; align-items: start; }
+.settings-layout { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); gap: 24px; align-items: stretch; }
 .settings-general { min-width: 0; }
+.settings-general .field-label:last-child { margin-bottom: 0; }
 .search-backdrop { z-index: 20; align-items: start; padding-top: min(16vh, 130px); }
 .search-modal { width: min(620px, 100%); max-height: min(620px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 20px 65px color-mix(in srgb, var(--bg) 45%, transparent); }
 .search-heading { align-items: center; margin-bottom: 14px; }
@@ -517,7 +518,7 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .field-label > span { color: var(--text-subtle); font-size: 11px; }
 .field-label input, .field-label select { width: 100%; height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background-color: var(--input-bg); color: var(--text-strong); font-size: 13px; }
 .field-label input:focus, .field-label select:focus { border-color: var(--purple); }
-.account-section { min-width: 0; margin-top: 0; padding-top: 0; padding-left: 0; border: 0; }
+.account-section { min-width: 0; display: flex; flex-direction: column; margin-top: 0; padding-top: 0; padding-left: 0; border: 0; }
 .account-platform-tabs { width: min(100%, 390px); display: flex; gap: 8px; margin-bottom: 18px; padding: 0; overflow-x: auto; border: 0; background: transparent; scrollbar-width: thin; }
 .account-platform-tabs button { position: relative; min-width: max-content; height: 38px; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; padding: 0 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; transition: border-color .14s ease, color .14s ease; }
 .account-platform-tabs button:hover { color: var(--text); }
@@ -530,6 +531,10 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .account-platform-tabs button[data-platform='youtube'] { --tab-accent: #ff0033; }
 .account-platform-tabs .platform-logo { width: 22px; height: 22px; color: var(--tab-accent); }
 .account-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.account-section-heading > div { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.account-section-heading .auth-status { color: var(--text-subtle); font-size: 10px; line-height: 1.4; }
+.account-section-heading .auth-status.success { color: var(--green, #45b887); }
+.account-section-heading .auth-status.failed { color: var(--red); }
 .account-section-heading h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--text-strong); font: 700 16px 'Manrope', sans-serif; }
 .account-section-heading h3 svg { width: 14px; height: 14px; color: var(--icon-accent); }
 .account-section-heading > span { color: var(--text-subtle); font-size: 10px; }
@@ -551,8 +556,10 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .account-action.danger:hover { color: var(--red); }
 .account-action:disabled { cursor: progress; opacity: .72; }
 .account-action svg { width: 12px; height: 12px; }
-.account-cookie-input { width: 100%; min-height: 72px; resize: vertical; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background-color: var(--input-bg); color: var(--text-strong); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.account-cookie-input { width: 100%; min-height: 112px; resize: vertical; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; outline: 0; background-color: var(--input-bg); color: var(--text-strong); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .account-cookie-input:focus { border-color: var(--purple); }
+.account-cookie-input { user-select: text; -webkit-user-select: text; cursor: text; caret-color: var(--text-strong); }
+.account-cookie-input::selection { background: var(--purple); color: var(--text-on-accent); }
 .field-label input, .field-label select, .account-cookie-input { background-image: linear-gradient(110deg, transparent 38%, color-mix(in srgb, var(--purple) 18%, transparent) 49%, transparent 60%); background-repeat: no-repeat; background-size: 260% 100%; background-position: 150% 0; }
 .field-label input:focus, .field-label select:focus, .account-cookie-input:focus { animation: input-scan-fill 1.8s cubic-bezier(.2,.65,.3,1) infinite; border-color: var(--purple); box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple) 14%, transparent); }
 @keyframes url-input-sheen { 0% { left: -46%; } 100% { left: 142%; } }
@@ -563,7 +570,8 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .account-clear-button { border: 1px solid var(--line); background: var(--panel-soft); color: var(--text-soft); }
 .account-clear-button:hover:not(:disabled) { border-color: var(--control-border); color: var(--text-strong); }
 .account-import-button:disabled, .account-clear-button:disabled { cursor: not-allowed; opacity: .55; }
-.platform-account-panel { min-width: 0; }
+.platform-account-panel { min-width: 0; flex: 1; display: grid; grid-template-rows: 40px minmax(72px, 1fr) 36px; gap: 8px; }
+.platform-account-panel .account-cookie-input { height: 100%; min-height: 72px; margin: 0; resize: none; overflow-y: auto; overflow-wrap: anywhere; word-break: break-all; }
 .platform-cookie-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 
 :root[data-theme='light'] body { background: var(--bg); color: var(--text); }

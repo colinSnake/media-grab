@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { navSchema, type AccountSession, type AccountSummary, type ExtractorPlatform } from '@mediagrab/shared'
+import { navSchema, type AccountSession, type AccountSummary, type CookieStatus, type ExtractorPlatform } from '@mediagrab/shared'
 import { ApiError } from '../lib/errors.js'
 import type { Logger } from '../lib/logger.js'
 import { silentLogger } from '../lib/logger.js'
@@ -57,7 +57,7 @@ export class AccountService {
   }
 
   list(): AccountSummary[] {
-    return this.#repo.list().map(summary)
+    return this.#repo.list().map((account) => ({ ...summary(account), credentialPreview: this.#vault.preview(account.id) }))
   }
 
   activeBili(): AccountRecord | null {
@@ -85,6 +85,11 @@ export class AccountService {
 
   cookieConfigured(platform: CookiePlatform): boolean {
     return this.#vault.get(cookieId(platform)) !== null
+  }
+
+  cookieStatus(platform: CookiePlatform): CookieStatus {
+    const configured = this.cookieConfigured(platform)
+    return { configured, credentialPreview: configured ? this.#vault.preview(cookieId(platform)) : null }
   }
 
   saveCookie(platform: CookiePlatform, rawCookie: string): void {
@@ -193,7 +198,7 @@ export class AccountService {
       this.#vault.delete(id)
       throw new ApiError('ACCOUNT_NOT_LOGGED_IN', 'B站 Cookie 已失效或未登录', 'auth', 403)
     }
-    return summary(next)
+    return { ...summary(next), credentialPreview: this.#vault.preview(id) }
   }
 
   remove(id: string): void {
