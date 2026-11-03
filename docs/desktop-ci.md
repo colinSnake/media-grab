@@ -46,7 +46,7 @@ gh workflow run publish-existing-build.yml --ref main \
   -f tag_name=v0.1.0
 ```
 
-工作流会核对成功状态、源工作流名称、标签版本、构建 SHA 和四平台构建记录，检查原始 `SHA256SUMS`，再下载并上传产物。Release 附件包含 5 个安装包、4 份工具源码/构建记录压缩包和覆盖全部附件的 `SHA256SUMS.txt`。若同版本草稿已存在，可重跑补齐附件；已公开的 Release 不会被覆盖。历史 Actions artifacts 必须尚未过期。
+工作流会核对成功状态、源工作流名称、标签版本、构建 SHA 和四平台构建记录，检查原始 `SHA256SUMS`，再下载并上传产物。Release 只上传 4 个安装包：macOS arm64/x64 DMG、Windows x64 EXE 和 Linux x64 AppImage。Linux `.deb` 及媒体工具源码/构建记录不放入面向用户的 Release；工具源码和记录仍保留为 CI artifact。每个安装包的 SHA-256 由 GitHub Release 附件元数据提供。若同版本草稿已存在，可重跑补齐附件；已公开的 Release 不会被覆盖。历史 Actions artifacts 必须尚未过期。
 
 执行成功后，在仓库 **Releases** 页面检查草稿与附件，再点击 **Publish release**；早期验收版本建议标记为预发布。后续新版本也可以直接推送匹配版本的 `v*` 标签，从检查和构建开始自动生成草稿。
 

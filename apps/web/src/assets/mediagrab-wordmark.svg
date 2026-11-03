@@ -1,13 +1,13 @@
-<svg width="520" height="128" viewBox="0 0 520 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="128" viewBox="0 0 600 128" fill="none">
   <defs>
-    <linearGradient id="wordmark" x1="18" y1="44" x2="492" y2="88" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6A4FE5"/>
-      <stop offset="1" stop-color="#2D9BEA"/>
+    <linearGradient id="brand" x1="104" y1="128" x2="408" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9875FF"/>
+      <stop offset="1" stop-color="#5EA5FF"/>
     </linearGradient>
   </defs>
-
-  <text x="18" y="76" fill="url(#wordmark)" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2" textLength="262" lengthAdjust="spacingAndGlyphs">Media</text>
-  <text x="286" y="76" fill="url(#wordmark)" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="72" font-style="italic" font-weight="800" letter-spacing="1.2" textLength="200" lengthAdjust="spacingAndGlyphs">Grab</text>
-  <path d="M24 94C170 122 375 124 492 86" stroke="url(#wordmark)" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="497" cy="84" r="5" fill="#2D9BEA"/>
+  <g transform="translate(0 -4) scale(.22)">
+    <path d="M128 382V188C128 167 153 157 168 172L256 260L344 172C359 157 384 167 384 188V382" stroke="url(#brand)" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+    <path transform="translate(20 -20)" d="M405 106C409 124 417 132 435 136C417 140 409 148 405 166C401 148 393 140 375 136C393 132 401 124 405 106Z" fill="#E9B84C"/>
+  </g>
+  <text x="112" y="83" fill="#252936" font-family="Manrope, Avenir Next, sans-serif" font-size="54" font-weight="750">MediaGrab</text>
 </svg>

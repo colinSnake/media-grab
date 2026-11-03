@@ -718,7 +718,7 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-window-drag-region" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown} aria-hidden="true" />
         <div className="brand-lockup">
-          <div className="brand-mark"><img src={logoUrl} alt="MediaGrab" /></div>
+          <div className="brand-mark"><img src={logoUrl} width={35} height={35} alt="" aria-hidden="true" /></div>
           <div className="brand-name"><strong>MediaGrab</strong><span>让内容回到本地</span></div>
         </div>
 
