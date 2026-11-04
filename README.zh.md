@@ -109,10 +109,10 @@ pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 
 ```bash
 pnpm install
-pnpm dev:desktop
+pnpm run dev
 ```
 
-`pnpm dev:desktop` 会启动 Tauri 窗口、Vite 界面和本地 Node 服务。单独运行检查时可用：`pnpm typecheck`、`pnpm test`、`pnpm build`。
+`pnpm run dev`（别名：`pnpm dev:desktop`）会启动 Tauri 窗口、Vite 界面和本地 Node 服务。单独运行检查时可用：`pnpm typecheck`、`pnpm test`、`pnpm build`。
 
 ## 文档
 
@@ -132,3 +132,16 @@ pnpm dev:desktop
 MediaGrab 采用 [MIT 许可证](./LICENSE)。
 
 第三方依赖和随包工具（包括 FFmpeg、LAME 和 yt-dlp）仍遵循各自的许可证，详见对应组件附带的许可证说明。
+
+### 视频超分（macOS Apple Silicon，本地首版）
+
+左侧 **媒体工具 → 视频超分** 提供独立任务页面：原生选择 MP4 和输出目录 → 探测 → 动漫 2× 超分 → 校验成片 → 打开结果。单作业按需加载 `realesr-animevideov3-x2`，支持排队、帧进度、取消与中断识别，不改变下载任务语义，也不自动处理下载内容。
+
+- 支持 SDR、恒定 1–60 fps、8-bit H.264 / 4:2:0 MP4；输入 64×64 至 1920×1080、偶数尺寸，最长 10 分钟 / 36000 帧。支持无音轨或单/双声道单 AAC 轨，复制音频并核对压缩数据哈希。
+- 不补帧，不上传，不覆盖源视频或已有输出；HDR、VFR、旋转、隔行、非方形像素、字幕、章节、多轨和未知时长提前拒绝。SDR 经 RGB 推理后统一编码为 BT.709，不承诺保留原自定义 ICC/描述性元数据。
+- 工具与模型不自动下载，也不提交到 Git。当前源码已通过真实模型处理验证，但**发行依赖尚未完整准备，不能据此认为现有安装包已支持超分**。缺工具、模型或平台支持时页面会明确报告不可用。
+- 开发依赖须显式准备：`UPSCALER_SOURCE_DIR` 指向已审核的引擎与 `models/`，`UPSCALER_FFMPEG` / `UPSCALER_FFPROBE` 指向绝对路径，再运行 `pnpm prepare:upscale-tools --development`。将输出目录设置为 `MEDIAGRAB_UPSCALE_DIR`；正常桌面开发入口会共享临时身份令牌，纯浏览器模式不开放本地处理 API。该命令不启动应用。
+
+详见 [实施与验证记录](docs/视频超分验证记录.md)，含资源实测、依赖来源、离线发行检查和待人工验收项。真实模型回归在先执行 `pnpm build` 后，可显式运行 `pnpm test:upscale:real`；该测试使用隔离数据库与本地子进程，不启动桌面应用。
+
+可按 [开发版手工验收指南](docs/视频超分测试指南.md) 使用 `pnpm verify:upscale-dev` 做只读预检，再由测试者手动运行 `pnpm dev:desktop:upscale`。入口拒绝占用端口且使用独立测试数据库；本项目尚未替用户完成 GUI 验收。

@@ -20,3 +20,9 @@ export async function openDownloadFile(directory: string, fileName: string): Pro
   if (!isDesktop()) return
   await invoke('open_download_file', { directory, fileName })
 }
+
+export interface UpscaleSelection { path: string; proof: string }
+export async function chooseUpscalePath(kind: 'input' | 'directory'): Promise<UpscaleSelection | null> {
+  if (!isDesktop()) throw new Error('请在 MediaGrab 桌面版选择本地文件')
+  return invoke<UpscaleSelection | null>('choose_upscale_path', { kind })
+}

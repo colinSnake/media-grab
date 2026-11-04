@@ -77,3 +77,16 @@ gh workflow run publish-existing-build.yml --ref main \
 当前包含 Windows/Linux x64 和 macOS 两种架构，不包含 Windows/Linux ARM64。Linux 产物以 Ubuntu 22.04 的构建环境为基线，仍需在计划支持的发行版上验证安装和运行。各系统的真实下载与安装验收需要在对应系统完成。
 
 > 安装后烟测仅证明相应 CI runner 上的打包程序可以启动，不等同于 Windows/Linux 多发行版、多桌面环境的人工验收；AppImage 烟测使用 extract-and-run，不覆盖 FUSE 挂载路径。首次启用需要实际运行 workflow 并检查失败日志，不应仅凭脚本合入标记安装验收完成。
+
+## 视频超分资源（2026-11-03 增量）
+
+超分源码不依赖另一项目的绝对路径；开发工具只能显式配置 `MEDIAGRAB_UPSCALE_DIR`。发行资源定位到现有 `resources/media-tools/<target>/upscale/`，沿用现有 Tauri 资源目录，不增加独立 App。`pnpm build:server` 同时复制 `dist/upscale/supervise.mjs`；生产依赖准备必须保留该文件和内置 Node，它用于父核心异常退出后的工具进程回收。
+
+- `pnpm prepare:upscale-tools --development`：仅复制显式指定的本机工具/模型到被忽略的 `.release-tools/upscale-dev/`，不下载；该 manifest 标记 `developmentOnly`，不可用于发行。
+- 发行准备需显式 `UPSCALER_SOURCE_DIR`、`UPSCALER_FFMPEG`、`UPSCALER_FFPROBE`、`UPSCALER_LICENSE_DIR`、`UPSCALER_REVIEW_MANIFEST`，可设 `UPSCALER_SIGN_IDENTITY` 对复制品签名。来源审查清单须给出引擎/权重/FFmpeg/FFprobe 来源、全部输入 SHA-256 和 `redistributionReviewed: true`；不能只把本项目 MIT 当作依赖许可。脚本拒绝覆盖已有 manifest。
+- 必备声明文件：`Real-ESRGAN-LICENSE.txt`、`Real-ESRGAN-ncnn-vulkan-LICENSE.txt`、`FFmpeg-LICENSE.txt`、`THIRD_PARTY_NOTICES.txt`。后者必须包含实际构建涉及的 ncnn、Vulkan/MoltenVK、编解码库等许可和来源，而非空模板。FFmpeg 若启用 libx264，必须按该实际构建的许可及对应源码义务处理；不要沿用旧“仅音频 FFmpeg”的声明推定完整视频构建可分发。
+- `pnpm verify:upscale-tools` 对未准备资源仅报告不可用，不伪装为验证成功。`build:desktop:release` 在 macOS arm64 上要求完整资源、已审查 provenance、架构/哈希/版本/编码能力和可执行程序签名；缺少则失败。其它平台明确不支持超分，而不阻断现有下载包。
+- `pnpm verify:upscale-tools --app /绝对路径/MediaGrab.app --require-signatures` 可对实际 `.app` 使用其内置 Node/核心验证嵌套资源、能力和签名，不启动 GUI 或推理；只有布局单测不等于真实安装包验证。开发人工验收使用 `pnpm verify:upscale-dev` 后由测试者手动执行 `pnpm dev:desktop:upscale`，该入口隔离数据库/设置、拒绝占用端口且不清理其它进程。步骤见 [视频超分开发版测试指南](./视频超分测试指南.md)。
+- 普通 `build:desktop` 可构建无超分资源的受限包，但页面会报不可用；不能在发布说明称已具备超分。构建安装器前仍须先按根 AGENTS.md 把旧安装器移到废纸篓；保留 Rust 缓存。
+
+本轮仅源码/原生编译与隔离引擎测试；没有执行安装包、安装、启动、重启或签名后离线 GUI 测试。再分发工具链尚未准备完整，严格发行检查应失败，而不是跳过后声称完成。

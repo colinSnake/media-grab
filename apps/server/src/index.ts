@@ -44,6 +44,7 @@ const webDist = resolveWebDist()
 const app = await buildApp({ config, webDist, services, desktopCore, coreToken })
 // 容器由本模块持有，退出时关闭数据库
 app.addHook('onClose', async () => {
+  await services.upscale.close()
   services.close()
 })
 

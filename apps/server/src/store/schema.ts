@@ -10,7 +10,7 @@
  * 当前 schema 版本。
  * 每次调整表结构（新增/删除/改名列）都必须 +1，并在 db.ts 的迁移里补上对应步骤。
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 /**
  * 建表语句，按顺序执行（整体包在一个事务里）。
@@ -25,6 +25,11 @@ export const SCHEMA_VERSION = 3
  *   新的直接覆盖旧的（不保留历史，历史 key 已失效且无诊断价值）。
  */
 export const SCHEMA_SQL: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS upscale_tasks (
+     id TEXT PRIMARY KEY,
+     snapshot TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS settings (
      key        TEXT PRIMARY KEY,
      value      TEXT NOT NULL,

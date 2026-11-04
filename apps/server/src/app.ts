@@ -1,3 +1,4 @@
+import { upscaleRoutes } from './routes/upscale.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import fastifyStatic from '@fastify/static'
@@ -116,6 +117,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     })
   }
 
+  app.addHook('onClose', async () => { await services.upscale.close() })
+
   await app.register(healthRoutes, { store: services.config, services, webDist, startedAt })
   await app.register(fastifyWebsocket)
   await app.register(configRoutes, { store: services.config, onConfigChanged: () => services.downloads.configChanged(), desktopCore: options.desktopCore })
@@ -123,6 +126,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(sessionRoutes, { services })
   await app.register(taskRoutes, { services })
   await app.register(mediaRoutes, { services })
+  await app.register(upscaleRoutes, { services, coreToken: options.coreToken })
   await app.register(platformRoutes, { services })
 
   app.get('/api/ws', { websocket: true }, (socket) => {
@@ -130,6 +134,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const unsubscribe = services.downloads.subscribe((event) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(event))
     })
+    const unsubscribeUpscale = options.coreToken ? services.upscale.subscribe((event) => {
+      if (socket.readyState === 1) socket.send(JSON.stringify(event))
+    }) : () => {}
+    socket.on('close', unsubscribeUpscale)
+    socket.on('error', unsubscribeUpscale)
     socket.on('close', unsubscribe)
     socket.on('error', unsubscribe)
   })

@@ -99,7 +99,7 @@ To build a particular format instead of every configured format, invoke the Taur
 pnpm --filter @mediagrab/desktop exec tauri build --bundles app,dmg
 ```
 
-For development, `pnpm dev:desktop` starts the Tauri window, Vite frontend, and local Node service. See [project structure and development conventions](./docs/project-structure-and-conventions.md) for more workflows.
+For development, `pnpm run dev` (alias: `pnpm dev:desktop`) starts the Tauri window, Vite frontend, and local Node service. See [project structure and development conventions](./docs/project-structure-and-conventions.md) for more workflows.
 
 ## Project status
 
@@ -123,3 +123,15 @@ Use MediaGrab only for content you have the right to access, download, and retai
 MediaGrab is licensed under the [MIT License](./LICENSE).
 
 Third-party dependencies and bundled tools, including FFmpeg, LAME, and yt-dlp, retain their respective licenses. See the license notices included with those components.
+
+### Local anime video upscaling (first implementation: macOS Apple Silicon)
+
+**Media tools → Video upscale** is an independent page and task queue inside MediaGrab, not another app. It provides native MP4/output-directory selection, preflight inspection, real `realesr-animevideov3-x2` inference, frame progress, cancellation, validated outputs and an open-result action. Download task semantics remain unchanged.
+
+Supported inputs: local SDR CFR 1–60 fps, 8-bit H.264 / 4:2:0 MP4, even dimensions from 64×64 through 1920×1080, up to 10 minutes / 36,000 frames; no audio or one mono/stereo AAC track. AAC compressed data is copied and hash-checked. HDR, VFR, rotation, interlacing, non-square pixels, subtitles, chapters, additional tracks and unknown duration are rejected. SDR is normalized through RGB inference to BT.709; custom ICC/descriptive metadata is not retained. Sources and existing outputs are never overwritten.
+
+**Source and real-engine tests are available; a redistribution-ready dependency bundle is not yet complete. Do not assume an existing installer includes this feature.** No tools/models are downloaded at startup or committed. Missing dependencies and unsupported platforms report an explicit capability failure. Development can explicitly stage existing dependencies with `UPSCALER_SOURCE_DIR`, `UPSCALER_FFMPEG`, `UPSCALER_FFPROBE` and `pnpm prepare:upscale-tools --development`, then set `MEDIAGRAB_UPSCALE_DIR` to the reported directory. The regular desktop development entry shares an ephemeral authenticated session; browser-only mode cannot process arbitrary local files.
+
+See [implementation/validation evidence](docs/视频超分验证记录.md) for measured resource use and pending packaging/manual acceptance. `pnpm test:upscale:real` is an opt-in real-model regression after `pnpm build`; it uses isolated data and does not launch the desktop app.
+
+For a manual development build, follow the [desktop test guide](docs/视频超分测试指南.md): run `pnpm verify:upscale-dev` for a read-only preflight, then manually run `pnpm dev:desktop:upscale`. The entry refuses occupied ports and uses an isolated test database. GUI acceptance has not yet been performed.

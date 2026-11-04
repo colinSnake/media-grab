@@ -13,8 +13,11 @@
     "build:server": "pnpm --filter @mediagrab/server build",
     "build:web": "pnpm --filter @mediagrab/web build",
     "build": "pnpm build:shared && pnpm build:server && pnpm build:web",
+    "dev": "pnpm dev:desktop",
     "dev:server": "pnpm --filter @mediagrab/server dev",
     "dev:web": "pnpm --filter @mediagrab/web dev",
+    "verify:upscale-dev": "node scripts/dev-upscale.mjs --check",
+    "dev:desktop:upscale": "node scripts/dev-upscale.mjs --launch",
     "dev:desktop:clean": "node scripts/cleanup-dev-ports.mjs",
     "dev:desktop:core": "node scripts/dev-desktop-core.mjs",
     "dev:desktop": "node scripts/dev-desktop.mjs",
@@ -25,11 +28,16 @@
     "prepare:release-tools": "node scripts/prepare-release-tools.mjs",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "verify:desktop-runtime": "node scripts/verify-desktop-runtime.mjs",
-    "build:desktop": "pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
-    "build:desktop:release": "pnpm prepare:desktop-runtime && pnpm prepare:release-tools && pnpm verify:desktop-runtime && pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
+    "build:desktop": "node scripts/verify-upscale-tools.mjs && pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
+    "build:desktop:release": "pnpm prepare:desktop-runtime && pnpm prepare:release-tools && node scripts/verify-upscale-tools.mjs --required --require-signatures && pnpm verify:desktop-runtime && pnpm --filter @mediagrab/desktop build && node scripts/finalize-macos-dmg.mjs",
     "typecheck": "pnpm build:shared && pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "probe:m1": "pnpm --filter @mediagrab/server probe:m1"
+    "test": "pnpm -r test && node --test scripts/upscale-build.test.mjs scripts/upscale-dev.test.mjs",
+    "probe:m1": "pnpm --filter @mediagrab/server probe:m1",
+    "build:upscale-ffmpeg": "node scripts/build-upscale-ffmpeg.mjs",
+    "prepare:upscale-tools": "node scripts/prepare-upscale-tools.mjs",
+    "verify:upscale-tools": "node scripts/verify-upscale-tools.mjs",
+    "test:upscale:offline": "node scripts/test-upscale-relocation.mjs",
+    "test:upscale:real": "node scripts/test-upscale.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

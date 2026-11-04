@@ -34,7 +34,21 @@ fn startup_diagnostic(message: impl AsRef<str>) {
     let _ = writeln!(output, "{}", message.as_ref());
 }
 
+#[cfg(debug_assertions)]
+fn desktop_test_data_dir(value: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(value);
+    if !path.is_absolute() || !path.is_dir() {
+        return Err("桌面测试数据目录必须是已存在的绝对目录".to_owned());
+    }
+    path.canonicalize().map_err(|error| error.to_string())
+}
+
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    // Explicit debug-test isolation; release builds ignore this override.
+    #[cfg(debug_assertions)]
+    if let Ok(directory) = std::env::var("MEDIAGRAB_DESKTOP_TEST_DATA_DIR") {
+        return desktop_test_data_dir(&directory);
+    }
     if std::env::var("MEDIAGRAB_STARTUP_DIAGNOSTICS").as_deref() == Ok("1") {
         if let Ok(path) = std::env::var("MEDIAGRAB_SMOKE_DATA_DIR") {
             if !path.trim().is_empty() {
@@ -97,6 +111,68 @@ fn choose_download_dir(app: AppHandle) -> Result<Option<String>, String> {
                 .map_err(|error| format!("无法读取所选目录: {error}"))
         })
         .transpose()
+}
+
+#[derive(Serialize)]
+struct UpscaleSelection {
+    path: String,
+    proof: String,
+}
+
+fn signed_upscale_selection(
+    app: &AppHandle,
+    kind: &str,
+    path: PathBuf,
+) -> Result<UpscaleSelection, String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("无法访问所选路径: {error}"))?
+        .to_string_lossy()
+        .into_owned();
+    let secret = &app.state::<CoreSecret>().0;
+    let proof = upscale_selection_proof(secret, kind, &path)?;
+    Ok(UpscaleSelection { path, proof })
+}
+
+fn upscale_selection_proof(secret: &str, kind: &str, path: &str) -> Result<String, String> {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|error| error.to_string())?;
+    mac.update(format!("upscale-{kind}\0{path}").as_bytes());
+    Ok(mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+#[tauri::command]
+async fn choose_upscale_path(
+    app: AppHandle,
+    kind: String,
+) -> Result<Option<UpscaleSelection>, String> {
+    if kind != "input" && kind != "directory" {
+        return Err("文件选择类型不合法".to_owned());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let dialog = app.dialog().file();
+        let selected = if kind == "input" {
+            dialog
+                .set_title("选择本地动漫视频（MP4）")
+                .add_filter("MP4 视频", &["mp4"])
+                .blocking_pick_file()
+        } else {
+            dialog.set_title("选择超分输出目录").blocking_pick_folder()
+        };
+        selected
+            .map(|file| {
+                let path = file.into_path().map_err(|error| error.to_string())?;
+                signed_upscale_selection(&app, &kind, path)
+            })
+            .transpose()
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -208,10 +284,10 @@ fn verify_core_challenge(address: SocketAddr, token: &str, nonce: &str) -> Resul
 
 #[tauri::command]
 async fn get_core_access(app: AppHandle) -> Result<String, String> {
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) && std::env::var("MEDIAGRAB_CORE_TOKEN").is_err() {
         return Ok(String::new());
     }
-    {
+    if !cfg!(debug_assertions) {
         let state = app.state::<CoreProcess>();
         let mut process = state.0.lock().map_err(|_| "核心进程锁不可用".to_owned())?;
         let child = process
@@ -433,7 +509,16 @@ pub fn run() {
         })
         .setup(|app| {
             setup_tray(app.handle())?;
-            let token = fresh_hex(32).map_err(std::io::Error::other)?;
+            let token = if cfg!(debug_assertions) {
+                std::env::var("MEDIAGRAB_CORE_TOKEN")
+                    .ok()
+                    .filter(|value| {
+                        value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+                    })
+                    .unwrap_or(fresh_hex(32).map_err(std::io::Error::other)?)
+            } else {
+                fresh_hex(32).map_err(std::io::Error::other)?
+            };
             let core = start_core(app.handle(), &token).map_err(std::io::Error::other)?;
             app.manage(CoreSecret(token));
             app.manage(CoreProcess(Mutex::new(core)));
@@ -443,6 +528,7 @@ pub fn run() {
             get_runtime_info,
             open_app_data_dir,
             choose_download_dir,
+            choose_upscale_path,
             open_download_file,
             notify_download,
             get_core_access
@@ -459,6 +545,24 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn upscale_selection_signature_matches_core_and_is_purpose_bound() {
+        let proof =
+            upscale_selection_proof(&"a".repeat(64), "input", "/private/测试 片.mp4").unwrap();
+        assert_eq!(
+            proof,
+            "d6d920fd75c833af3938fb9542a0666492cafce95c5c269933e1d5047a63172c"
+        );
+        assert_ne!(
+            proof,
+            upscale_selection_proof(&"a".repeat(64), "directory", "/private/测试 片.mp4").unwrap()
+        );
+        assert_ne!(
+            proof,
+            upscale_selection_proof(&"a".repeat(64), "input", "/private/其它.mp4").unwrap()
+        );
+    }
 
     #[test]
     fn handshake_accepts_only_the_correct_session_secret() {
@@ -508,6 +612,24 @@ mod tests {
         });
         assert!(verify_core_challenge(address, &"a".repeat(64), &"b".repeat(32)).is_err());
         responder.join().expect("server done");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn desktop_test_data_dir_requires_an_existing_absolute_directory() {
+        assert!(desktop_test_data_dir("relative-test-data").is_err());
+        let temporary = std::env::temp_dir();
+        assert_eq!(
+            desktop_test_data_dir(temporary.to_str().unwrap()).unwrap(),
+            temporary.canonicalize().unwrap()
+        );
+        assert!(desktop_test_data_dir(
+            temporary
+                .join("mediagrab-missing-test-directory")
+                .to_str()
+                .unwrap()
+        )
+        .is_err());
     }
 
     #[test]

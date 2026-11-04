@@ -1,3 +1,4 @@
+import { UpscaleService } from './upscale/service.js'
 import { platformCatalog, type AppConfig, type ExtractorPlatform } from '@mediagrab/shared'
 import { BiliClient } from './bili/client.js'
 import { FingerprintService } from './bili/fingerprint.js'
@@ -57,6 +58,7 @@ export interface Services {
   bili: BiliClient
   platforms: PlatformRegistry
   media: MediaRegistry
+  upscale: UpscaleService
   downloads: TaskService
   accountService: AccountService
   /** 关闭数据库；由 app 的 onClose 钩子调用 */
@@ -141,6 +143,7 @@ export function createServices(options: CreateServicesOptions): Services {
     media,
     downloads,
     accountService,
+    upscale: new UpscaleService(db),
     close: () => db.close(),
   }
 }

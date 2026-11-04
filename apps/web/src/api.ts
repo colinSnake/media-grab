@@ -75,7 +75,7 @@ let coreTokenPromise: Promise<string> | undefined
 let verifiedCoreToken = ''
 
 export async function getCoreToken(): Promise<string> {
-  if (apiBase() === '' || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return ''
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return ''
   coreTokenPromise ??= invoke<string>('get_core_access').then((token) => {
     verifiedCoreToken = token
     return token
@@ -108,7 +108,7 @@ export async function fetchWithCoreAuth(path: string): Promise<Response> {
   return fetch(apiUrl(path), { headers })
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const token = await getCoreToken()
   let response: Response
   try {

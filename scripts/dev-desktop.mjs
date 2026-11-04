@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { cleanupDevPorts } from './cleanup-dev-ports.mjs'
 
@@ -10,7 +11,8 @@ try {
 
 const child = spawn('pnpm', ['--filter', '@mediagrab/desktop', 'dev'], {
   cwd: process.cwd(),
-  env: process.env,
+  // Share an ephemeral secret with Tauri and its beforeDevCommand core. Never persist it.
+  env: { ...process.env, MEDIAGRAB_DESKTOP_CORE: '1', MEDIAGRAB_CORE_TOKEN: randomBytes(32).toString('hex') },
   stdio: 'inherit',
   detached: process.platform !== 'win32',
 })

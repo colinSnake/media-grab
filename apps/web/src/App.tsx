@@ -1,3 +1,4 @@
+import { UpscalePage } from './components/UpscalePage'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -55,7 +56,7 @@ type SettingsAccountPlatform = AccountPlatform | 'youtube'
 type CookieAccountState = { cookie: string; configured: boolean; credentialPreview?: string | null; saving: boolean; authFailed: boolean }
 type AutoSaveField = 'savePath' | 'ytDlpPath' | 'defaultDownloadMode'
 type SettingsErrors = Partial<Record<AutoSaveField, string>>
-type WorkspaceView = 'new' | 'queue' | 'history'
+type WorkspaceView = 'new' | 'queue' | 'history' | 'upscale'
 type ThemeMode = 'system' | 'light' | 'dark'
 type CoreConnection = 'connecting' | 'ready' | 'disconnected'
 
@@ -423,7 +424,7 @@ function App() {
   const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
   const hasGenericAudio = selectedGenericStream?.combined === true || genericParsed?.streams.some((stream) => stream.kind === 'audio' && stream.available) === true
   const canEnqueue = parsed !== null || selectedGenericStream?.available === true && (selectedGenericStream.kind === 'image' || mode === 'video' || hasGenericAudio)
-  const viewTitle = activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
+  const viewTitle = activeView === 'upscale' ? '视频超分' : activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
 
   useEffect(() => {
     if (chosenQuality !== undefined && selectedQuality !== chosenQuality.qn) setSelectedQuality(chosenQuality.qn)
@@ -729,6 +730,11 @@ function App() {
           <button className={`nav-item ${activeView === 'history' ? 'active' : ''}`} type="button" onClick={() => setActiveView('history')}><Clock3 /><span>历史记录</span></button>
         </nav>
 
+        <div className="sidebar-label sources-label">媒体工具</div>
+        <nav className="side-nav" aria-label="媒体工具">
+          <button className={`nav-item ${activeView === 'upscale' ? 'active' : ''}`} type="button" onClick={() => setActiveView('upscale')}><Monitor /><span>视频超分</span></button>
+        </nav>
+
         <div className="sidebar-label sources-label">平台来源</div>
         <nav className="source-nav" aria-label="平台筛选">
           {sourcePlatforms.map((platform) => (
@@ -771,6 +777,8 @@ function App() {
             </span>
           </div>
         </header>
+
+        {activeView === 'upscale' && <UpscalePage />}
 
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
@@ -841,7 +849,7 @@ function App() {
           </div>
         </div>}
 
-        {activeView !== 'new' && <section className="panel task-view-panel">
+        {(activeView === 'queue' || activeView === 'history') && <section className="panel task-view-panel">
           <div className="panel-heading">
             <div className="heading-title"><div><h2><span className="heading-main">任务列表</span><small className="heading-count">（{activeView === 'history' ? historyTasks.length : queueTasks.length}项）</small></h2></div></div>
             <div ref={historyFilterRef} className="platform-filter" data-open={historyFilterOpen ? 'true' : 'false'}>
