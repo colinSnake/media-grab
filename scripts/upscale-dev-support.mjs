@@ -1,7 +1,7 @@
 /** Read-only preflight helpers. Importing this module never starts the app. */
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { access, realpath } from 'node:fs/promises'
+import { access, realpath, stat } from 'node:fs/promises'
 import { createConnection } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -12,6 +12,29 @@ export function developmentToolDirectory(env = process.env) {
   const value = env.MEDIAGRAB_UPSCALE_DIR?.trim() || path.join(repositoryRoot, '.release-tools/upscale-offline-test')
   if (!path.isAbsolute(value)) throw new Error('MEDIAGRAB_UPSCALE_DIR 必须是显式绝对路径')
   return value
+}
+/** Development entry only: never stage unreviewed tools into release resources. */
+export async function desktopDevelopmentEnvironment(env = process.env, { root = repositoryRoot, platform = process.platform, arch = process.arch } = {}) {
+  const result = { ...env }
+  if (env.MEDIAGRAB_UPSCALE_DIR?.trim()) {
+    result.MEDIAGRAB_UPSCALE_DIR = developmentToolDirectory(env)
+    return result
+  }
+  if (platform !== 'darwin' || arch !== 'arm64') return result
+  const hasManifest = async (directory) => {
+    try { return (await stat(path.join(directory, 'manifest.json'))).isFile() }
+    catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error.code)) return false; throw error }
+  }
+  const resources = path.join(root, 'apps/desktop/src-tauri/resources/media-tools')
+  // Prefer deliberately staged resources; let the core validate their manifest.
+  for (const directory of [path.join(resources, `${platform}-${arch}`, 'upscale'), path.join(resources, 'upscale')]) {
+    if (await hasManifest(directory)) return result
+  }
+  const directory = path.join(root, '.release-tools/upscale-offline-test')
+  if (await hasManifest(directory)) result.MEDIAGRAB_UPSCALE_DIR = directory
+  // Missing/invalid dependencies remain unavailable; the core still verifies hashes,
+  // architectures and supported codecs before it reports availability.
+  return result
 }
 export async function verifyDevelopmentTools(directory, node = process.execPath) {
   const root = await realpath(directory)

@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process'
+import { desktopDevelopmentEnvironment } from './upscale-dev-support.mjs'
+
+const environment = await desktopDevelopmentEnvironment()
+if (environment.MEDIAGRAB_UPSCALE_DIR) console.log(`桌面开发超分依赖目录：${environment.MEDIAGRAB_UPSCALE_DIR}`)
 
 const children = new Set()
 let shuttingDown = false
@@ -6,7 +10,7 @@ let shuttingDown = false
 function start(name, args, { restart = false } = {}) {
   const child = spawn('pnpm', args, {
     cwd: process.cwd(),
-    env: process.env,
+    env: environment,
     stdio: 'inherit',
     detached: process.platform !== 'win32',
   })

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createServer } from 'node:net'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import { assertPortsFree, developmentToolDirectory, isolatedDesktopEnvironment } from './upscale-dev-support.mjs'
+import { assertPortsFree, desktopDevelopmentEnvironment, developmentToolDirectory, isolatedDesktopEnvironment } from './upscale-dev-support.mjs'
 import { main } from './dev-upscale.mjs'
 
 test('desktop test environment overrides production data/token without mutating parent environment', () => {
@@ -19,6 +21,29 @@ test('explicit dependency roots are absolute and do not use the reference projec
   assert.throws(() => developmentToolDirectory({ MEDIAGRAB_UPSCALE_DIR: './tools' }), /绝对/)
   assert.equal(developmentToolDirectory({ MEDIAGRAB_UPSCALE_DIR: '/tmp/local-tools' }), '/tmp/local-tools')
   assert.ok(developmentToolDirectory({}).endsWith(path.join('.release-tools', 'upscale-offline-test')))
+})
+test('normal desktop development resolves project-local tools without staging resources or changing data/token', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mediagrab-dev-tools-'))
+  const options = { root, platform: 'darwin', arch: 'arm64' }
+  const parent = { DATA_DIR: '/user/data', DB_PATH: '/user/data/tasks.db', MEDIAGRAB_CORE_TOKEN: 'existing-token' }
+  const tools = path.join(root, '.release-tools/upscale-offline-test')
+  const bundled = path.join(root, 'apps/desktop/src-tauri/resources/media-tools/darwin-arm64/upscale')
+  try {
+    assert.deepEqual(await desktopDevelopmentEnvironment(parent, options), parent)
+    await mkdir(tools, { recursive: true })
+    await writeFile(path.join(tools, 'manifest.json'), '{}')
+    const result = await desktopDevelopmentEnvironment(parent, options)
+    assert.deepEqual(result, { ...parent, MEDIAGRAB_UPSCALE_DIR: tools })
+    assert.equal(parent.MEDIAGRAB_UPSCALE_DIR, undefined)
+    assert.deepEqual(await desktopDevelopmentEnvironment(parent, { ...options, platform: 'linux', arch: 'x64' }), parent)
+    // Explicit configuration always wins, including a missing directory; do not hide errors.
+    assert.equal((await desktopDevelopmentEnvironment({ ...parent, MEDIAGRAB_UPSCALE_DIR: '/explicit/tools' }, options)).MEDIAGRAB_UPSCALE_DIR, '/explicit/tools')
+    await assert.rejects(desktopDevelopmentEnvironment({ MEDIAGRAB_UPSCALE_DIR: './relative' }, options), /绝对/)
+    // Keep staged release resources authoritative when they already exist.
+    await mkdir(bundled, { recursive: true })
+    await writeFile(path.join(bundled, 'manifest.json'), '{}')
+    assert.deepEqual(await desktopDevelopmentEnvironment(parent, options), parent)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 test('occupied ports fail preflight without stopping their owner', async () => {
   const server = createServer((socket) => socket.end())
