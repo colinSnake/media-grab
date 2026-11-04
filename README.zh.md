@@ -1,6 +1,4 @@
 <p align="center">
-  <img src="./apps/web/src/assets/mediagrab-logo.svg" width="96" valign="middle" alt="MediaGrab 标志" />
-  &nbsp;&nbsp;&nbsp;
   <img src="./apps/web/src/assets/mediagrab-wordmark.svg" width="390" valign="middle" alt="MediaGrab" />
 </p>
 
