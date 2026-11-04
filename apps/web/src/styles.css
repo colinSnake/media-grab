@@ -203,9 +203,9 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .settings-link:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
 :root[data-theme='light'] .settings-link:hover { background: var(--panel-soft); color: var(--text); }
 
-.main-content { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(226px, 31%) minmax(0, 1fr); gap: 14px; padding: 0 21px 19px; overflow: hidden; }
+.main-content { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(226px, 31%) minmax(0, 1fr); gap: 10px; padding: 0 15px 10px; overflow: hidden; }
 .main-content.list-view { grid-template-rows: 48px minmax(0, 1fr); }
-.topbar { min-width: 0; display: flex; align-items: center; justify-content: flex-end; margin: 0 -21px; padding: 0 14px 0 21px; border-bottom: 1px solid var(--line-soft); background: var(--panel); cursor: grab; user-select: none; }
+.topbar { min-width: 0; display: flex; align-items: center; justify-content: flex-end; margin: 0 -15px; padding: 0 14px 0 15px; border-bottom: 1px solid var(--line-soft); background: var(--panel); cursor: grab; user-select: none; }
 .topbar:active { cursor: grabbing; }
 .topbar-actions { display: flex; align-items: center; gap: 5px; }
 .core-status { position: relative; width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); outline: none; }
@@ -755,8 +755,8 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 
 @media (max-width: 1050px) {
   .app-shell { grid-template-columns: 190px minmax(0, 1fr); }
-  .main-content { padding-right: 12px; padding-left: 12px; }
-  .topbar { margin-right: -12px; margin-left: -12px; padding-right: 10px; padding-left: 12px; }
+  .main-content { padding-right: 15px; padding-left: 15px; }
+  .topbar { margin-right: -15px; margin-left: -15px; padding-right: 10px; padding-left: 15px; }
   .workspace-grid { grid-template-columns: minmax(0, 1.3fr) minmax(230px, .7fr); gap: 10px; }
   .right-stack { gap: 10px; }
   .hero-heading h1 { font-size: 24px; }
@@ -774,8 +774,8 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
   .source-state { display: none; }
   .sidebar-bottom { width: 100%; justify-items: center; }
   .settings-link { width: 42px; justify-content: center; padding: 0; }
-  .main-content { grid-template-rows: 44px minmax(244px, 30%) minmax(0, 1fr); gap: 10px; padding: 0 7px 12px; }
-  .topbar { margin-right: -7px; margin-left: -7px; padding-right: 8px; padding-left: 7px; }
+  .main-content { grid-template-rows: 44px minmax(244px, 30%) minmax(0, 1fr); gap: 10px; padding: 0 15px 10px; }
+  .topbar { margin-right: -15px; margin-left: -15px; padding-right: 8px; padding-left: 15px; }
   .workspace-grid { grid-template-columns: minmax(0, 1.18fr) minmax(210px, .7fr); gap: 9px; }
   .hero-panel { gap: 19px; padding: 15px 16px 12px; }
   .hero-heading { align-items: flex-start; flex-direction: column; gap: 18px; transform: translateY(-12px); }
@@ -797,8 +797,8 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
   .sidebar { padding-right: 4px; padding-left: 4px; }
   .brand-mark { width: 31px; height: 31px; font-size: 15px; }
   .nav-item, .source-item, .settings-link { width: 38px; }
-  .main-content { grid-template-rows: 42px minmax(220px, 29%) minmax(0, 1fr); gap: 8px; padding: 0 5px 8px; }
-  .topbar { margin-right: -5px; margin-left: -5px; padding-right: 8px; padding-left: 5px; }
+  .main-content { grid-template-rows: 42px minmax(220px, 29%) minmax(0, 1fr); gap: 10px; padding: 0 15px 10px; }
+  .topbar { margin-right: -15px; margin-left: -15px; padding-right: 8px; padding-left: 15px; }
   .hero-panel { gap: 14px; padding: 11px 10px; }
   .hero-heading { gap: 12px; transform: translateY(-8px); }
   .hero-heading h1 { min-height: 21px; max-width: 100%; font-size: 17px; }
