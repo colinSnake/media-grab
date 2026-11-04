@@ -101,11 +101,11 @@ export async function getTaskEventConnection(): Promise<{ url: string; protocols
   return { url: url.toString(), protocols: token ? [`mg-${token}`] : undefined }
 }
 
-export async function fetchWithCoreAuth(path: string): Promise<Response> {
+export async function fetchWithCoreAuth(path: string, signal?: AbortSignal): Promise<Response> {
   const token = await getCoreToken()
   const headers = new Headers()
   if (token) headers.set('X-Mediagrab-Token', token)
-  return fetch(apiUrl(path), { headers })
+  return fetch(apiUrl(path), { headers, signal })
 }
 
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {

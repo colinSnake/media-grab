@@ -262,7 +262,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
       tabIndex={onSelect ? 0 : undefined}
       aria-current={selected ? 'true' : undefined}
       aria-label={canCancelFromRow ? `${title}，下载中，点击取消` : title}
-      title={canCancelFromRow ? '点击任务块取消下载' : undefined}
+      data-tooltip={canCancelFromRow ? '点击任务块取消下载' : undefined}
       onClick={(event) => {
         if (event.target instanceof Element && event.target.closest('button')) return
         if (canCancelFromRow) void runAction('cancel', onCancel!)
@@ -281,10 +281,10 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
         </span>
       </TaskIconTooltip>
       <span className="task-title">
-        <strong title={title}>{title}</strong>
+        <strong data-tooltip={title}>{title}</strong>
         <span className="task-meta">
-          <span className={`task-mode-tag ${task.mode}`} title={modeLabel}>{modeLabel}</span>
-          {resolutionLabel !== '' && <span className="task-resolution-tag" title={resolutionLabel}>{resolutionLabel}</span>}
+          <span className={`task-mode-tag ${task.mode}`} data-tooltip={modeLabel}>{modeLabel}</span>
+          {resolutionLabel !== '' && <span className="task-resolution-tag" data-tooltip={resolutionLabel}>{resolutionLabel}</span>}
         </span>
       </span>
       {variant === 'detail' && task.status !== 'queued' && <TaskStatusIndicator status={indicatorStatus} error={task.error} />}
@@ -306,7 +306,7 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
               <span className={`task-platform-icon ${task.platform}`} aria-hidden="true">{task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}</span>
               <div><h2 id={`task-details-title-${task.id}`}>任务详情</h2></div>
             </div>
-            <button className="icon-button" type="button" title="关闭详情" aria-label="关闭详情" onClick={() => setShowDetails(false)}><X /></button>
+            <button className="icon-button" type="button" data-tooltip="关闭详情" aria-label="关闭详情" onClick={() => setShowDetails(false)}><X /></button>
           </div>
           <div className="task-details-content">
             <section className="task-detail-section task-resource-section">
@@ -321,17 +321,17 @@ export function TaskRow({ task, variant = 'detail', selected = false, isHistory 
               <div className="task-source-content">
                 <strong className="task-detail-label">来源链接</strong>
                 <div className="task-source-value-row">
-                  <span className="task-detail-source-value" title={sourceLink}>{sourceLink}</span>
-                  <button className={`task-copy-button ${copyState}`} type="button" onClick={() => void copySourceLink()} disabled={sourceLink === '未提供'} title={copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制来源链接'} aria-label={copyState === 'copied' ? '链接已复制' : copyState === 'failed' ? '复制链接失败' : '复制来源链接'}>
+                  <span className="task-detail-source-value" data-tooltip={sourceLink}>{sourceLink}</span>
+                  <button className={`task-copy-button ${copyState}`} type="button" onClick={() => void copySourceLink()} disabled={sourceLink === '未提供'} data-tooltip={copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制来源链接'} aria-label={copyState === 'copied' ? '链接已复制' : copyState === 'failed' ? '复制链接失败' : '复制来源链接'}>
                     {copyState === 'copied' ? <Check /> : <Copy />}
                   </button>
                 </div>
               </div>
             </section>
             <div className="task-detail-file-row">
-              <section className="task-detail-file-item output"><span className="task-detail-inline-icon large">{task.mode === 'image' ? <FileImage /> : <FileVideo2 />}</span><div><strong className="task-detail-label">输出文件</strong>{outputFiles.length ? outputFiles.map((file) => <span className="task-detail-file-value" key={file.kind} title={file.fileName}>{file.fileName}</span>) : <span className="task-detail-file-value">尚未生成</span>}</div></section>
+              <section className="task-detail-file-item output"><span className="task-detail-inline-icon large">{task.mode === 'image' ? <FileImage /> : <FileVideo2 />}</span><div><strong className="task-detail-label">输出文件</strong>{outputFiles.length ? outputFiles.map((file) => <span className="task-detail-file-value" key={file.kind} data-tooltip={file.fileName}>{file.fileName}</span>) : <span className="task-detail-file-value">尚未生成</span>}</div></section>
               <section className="task-detail-file-item"><span className="task-detail-inline-icon large"><HardDrive /></span><div><strong className="task-detail-label">文件大小</strong><span className="task-detail-file-value">{task.totalBytes > 0 ? formatBytes(task.totalBytes) : '未知'}</span></div></section>
-              <section className="task-detail-file-item"><span className="task-detail-inline-icon large"><CalendarClock /></span><div><strong className="task-detail-label">更新时间</strong><span className="task-detail-file-value" title={savedAtLabel}>{savedAtLabel || '未知'}</span></div></section>
+              <section className="task-detail-file-item"><span className="task-detail-inline-icon large"><CalendarClock /></span><div><strong className="task-detail-label">更新时间</strong><span className="task-detail-file-value" data-tooltip={savedAtLabel}>{savedAtLabel || '未知'}</span></div></section>
             </div>
             {task.status !== 'queued' && <section className="task-detail-section task-detail-progress">
               <div className="task-detail-section-heading"><span><Gauge /></span><div><small>{terminal ? '下载记录' : phaseLabel(task)}</small><strong>{task.status === 'success' || task.totalBytes > 0 ? `${Math.round(progress * 100)}%` : terminal ? '总进度未知' : '下载进度'}</strong></div><span className="task-detail-progress-size">{transferSize}</span></div>

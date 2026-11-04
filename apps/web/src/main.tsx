@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
+import { installDesktopContextMenuGuard } from './lib/desktop-context-menu'
 
 const themeStorageKey = 'mediagrab-theme'
 let storedTheme: string | null = null
@@ -17,6 +18,9 @@ const theme = storedTheme === 'light' || storedTheme === 'dark'
     : 'light'
 document.documentElement.dataset.theme = theme
 document.documentElement.style.colorScheme = theme
+
+const removeContextMenuGuard = installDesktopContextMenuGuard(window)
+import.meta.hot?.dispose(removeContextMenuGuard)
 
 const desktopWindow = window as Window & { __TAURI_INTERNALS__?: unknown }
 if (desktopWindow.__TAURI_INTERNALS__ !== undefined && navigator.platform.toLowerCase().includes('mac')) {

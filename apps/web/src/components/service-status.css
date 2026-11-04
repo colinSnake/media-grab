@@ -1,0 +1,26 @@
+.service-status-trigger, .service-status-popover { --status-color: var(--amber); }
+.service-status-trigger.ready, .service-status-popover.ready { --status-color: var(--green); }
+.service-status-trigger.unavailable, .service-status-popover.unavailable { --status-color: var(--red); }
+.service-status-trigger { position: relative; flex-shrink: 0; }
+.service-status-trigger > svg { width: 16px; height: 16px; }
+.service-status-trigger[aria-expanded='true'] { border-color: var(--control-border); background: var(--control-selected); color: var(--icon-accent); }
+.service-status-trigger:focus-visible, .service-status-popover button:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+.service-status-dot { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border: 2px solid var(--panel); border-radius: 50%; background: var(--status-color); }
+.service-status-popover { position: fixed; z-index: 120; width: min(300px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 14px; border: 1px solid var(--line); border-radius: 10px; outline: none; background: var(--panel); box-shadow: 0 12px 32px color-mix(in srgb, var(--bg) 35%, transparent); color: var(--text); cursor: default; user-select: text; -webkit-user-select: text; }
+.service-status-heading, .service-status-heading > span, .service-status-heading-actions, .service-status-label { display: flex; align-items: center; gap: 6px; }
+.service-status-heading { justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.service-status-heading svg { width: 14px; height: 14px; color: var(--icon-accent); }
+.service-status-heading strong { color: var(--text-strong); font-size: 12px; }
+.service-status-label { flex-shrink: 0; color: var(--status-color); font-size: 10px; }
+.service-status-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--status-color); }
+.service-status-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; color: var(--text-strong); font-size: 12px; font-weight: 500; line-height: 1.5; }
+.service-status-scale { flex-shrink: 0; padding: 1px 5px; border: 1px solid var(--control-border); border-radius: 4px; background: var(--control-selected); color: var(--icon-accent); font-size: 10px; }
+.service-status-details { display: grid; gap: 10px; margin: 0; }
+.service-status-details > div { min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; font-size: 11px; line-height: 1.5; }
+.service-status-details dt { color: var(--text-muted); }
+.service-status-details dd { min-width: 0; margin: 0; color: var(--text-strong); overflow-wrap: anywhere; }
+.service-status-reason { margin: 12px 0 0; padding: 8px; border-radius: 5px; background: var(--danger-soft); color: var(--red); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.service-status-heading-actions { flex-shrink: 0; }
+.service-status-refresh { width: 24px; height: 24px; display: grid; flex-shrink: 0; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--icon-muted); }
+.service-status-refresh > svg { width: 13px; height: 13px; color: inherit; }
+.service-status-refresh:hover:not(:disabled) { border-color: var(--line); background: var(--control); color: var(--icon-accent); }

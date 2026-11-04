@@ -44,7 +44,7 @@ function CookieInput({ platform, cookie, credentialPreview, disabled, onChange }
     className="account-cookie-input"
     value={displayValue}
     placeholder={`粘贴${platform} Cookie`}
-    title={cookie ? '待保存，当前显示完整 JWE 密文' : credentialPreview ? '已加密保存，当前显示完整 JWE 密文，粘贴 Cookie 可替换' : undefined}
+    data-tooltip={cookie ? '待保存，当前显示完整 JWE 密文' : credentialPreview ? '已加密保存，当前显示完整 JWE 密文，粘贴 Cookie 可替换' : undefined}
     onChange={(event) => {
       // Ciphertext is display-only: editing it must never submit it as a Cookie.
       // Keep the native editable caret and selection; replace credentials through paste/drop.
@@ -144,14 +144,14 @@ export function SettingsModal({
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
         <div className="modal-heading">
           <div><h2 id="settings-title">应用设置</h2></div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}><X /></button>
+          <button className="icon-button" type="button" data-tooltip="关闭" onClick={onClose}><X /></button>
         </div>
         <div className="settings-layout">
           <div className="settings-general">
             <label className="field-label">下载目录
               <span className="directory-picker">
                 <input value={draft.savePath ?? ''} onChange={(event) => onDraftChange({ savePath: event.target.value })} onBlur={(event) => onSaveSetting('savePath', event.currentTarget.value)} aria-invalid={Boolean(settingErrors.savePath)} aria-describedby={settingErrors.savePath ? 'setting-save-path-error' : undefined} />
-                {onPickDownloadDirectory && <button type="button" onClick={onPickDownloadDirectory} title="选择下载目录" aria-label="选择下载目录"><FolderOpen /></button>}
+                {onPickDownloadDirectory && <button type="button" onClick={onPickDownloadDirectory} data-tooltip="选择下载目录" aria-label="选择下载目录"><FolderOpen /></button>}
               </span>
               {settingErrors.savePath && <span id="setting-save-path-error" className="settings-field-error">{settingErrors.savePath}</span>}
             </label>
@@ -168,7 +168,7 @@ export function SettingsModal({
             ] as const).map(([platform, label]) => <button key={platform} type="button" role="tab" data-platform={platform} aria-selected={activeAccountPlatform === platform} className={activeAccountPlatform === platform ? 'active' : ''} onClick={() => onAccountPlatformChange(platform)}><PlatformLogo platform={platform} /><span>{label}</span></button>)}
           </div>
           {activeAccountPlatform === 'bilibili' && <div className="platform-account-panel">
-          <div className="account-section-heading"><div><h3><UserRound /> B站</h3><span className={`auth-status ${biliAuthFailed ? 'failed' : activeBiliAccount?.status === 'active' ? 'success' : ''}`}>{biliAuthFailed ? '（认证失败，认证信息不对，请重试）' : activeBiliAccount?.status === 'active' ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div>{activeBiliAccount && <button className="account-action" type="button" title="验证B站 Cookie" aria-label="验证B站 Cookie" aria-busy={accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify'} onClick={() => onVerifyAccount(activeBiliAccount.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify' ? <LoaderCircle className="spin" /> : <Check />}</button>}</div>
+          <div className="account-section-heading"><div><h3><UserRound /> B站</h3><span className={`auth-status ${biliAuthFailed ? 'failed' : activeBiliAccount?.status === 'active' ? 'success' : ''}`}>{biliAuthFailed ? '（认证失败，认证信息不对，请重试）' : activeBiliAccount?.status === 'active' ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div>{activeBiliAccount && <button className="account-action" type="button" data-tooltip="验证B站 Cookie" aria-label="验证B站 Cookie" aria-busy={accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify'} onClick={() => onVerifyAccount(activeBiliAccount.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify' ? <LoaderCircle className="spin" /> : <Check />}</button>}</div>
           <CookieInput platform="B站" cookie={accountCookie} credentialPreview={activeBiliAccount?.credentialPreview} disabled={isSavingAccount || accountAction !== null} onChange={onAccountCookieChange} />
           <div className="platform-cookie-actions"><button className="account-import-button" type="button" onClick={onSaveAccount} disabled={isSavingAccount || accountAction !== null || accountCookie.trim() === ''} aria-busy={isSavingAccount}>{isSavingAccount ? '正在保存' : '保存'}</button><button className="account-clear-button" type="button" onClick={onClearBiliCookie} disabled={isSavingAccount || accountAction !== null || (!activeBiliAccount && accountCookie === '')} aria-busy={isClearingBili}>{isClearingBili ? '正在清空' : '清空'}</button></div>
           </div>}

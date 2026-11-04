@@ -1,4 +1,5 @@
 import { UpscalePage } from './components/UpscalePage'
+import { DownloadServiceStatus } from './components/DownloadServiceStatus'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -18,11 +19,13 @@ import {
   Monitor,
   Moon,
   Music2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
-  Server,
   Settings2,
   Sun,
+  WandSparkles,
   X,
 } from 'lucide-react'
 import type {
@@ -43,6 +46,7 @@ import { cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieS
 import logoUrl from './assets/mediagrab-logo-small.svg'
 import { TaskRow, type DownloadResult } from './components/TaskRow'
 import { TaskIconTooltip } from './components/TaskIconTooltip'
+import { GlobalTooltip } from './components/GlobalTooltip'
 import { TaskSearchDialog } from './components/TaskSearchDialog'
 import { isTerminalTask } from './components/TaskRow'
 import { SettingsModal } from './components/SettingsModal'
@@ -61,6 +65,7 @@ type ThemeMode = 'system' | 'light' | 'dark'
 type CoreConnection = 'connecting' | 'ready' | 'disconnected'
 
 const THEME_STORAGE_KEY = 'mediagrab-theme'
+const SIDEBAR_STORAGE_KEY = 'mediagrab-sidebar-collapsed'
 const themeModes: ThemeMode[] = ['system', 'dark', 'light']
 const themeLabels: Record<ThemeMode, string> = {
   system: '跟随系统',
@@ -73,17 +78,6 @@ const defaultPlatform = sourcePlatforms[0]?.platform ?? 'bilibili'
 const heroTitlePrimary = '把喜欢的内容，'
 const heroTitleAccent = '带回本地。'
 const heroTitle = `${heroTitlePrimary}${heroTitleAccent}`
-
-function coreStatusTooltip(connection: CoreConnection, health: HealthResponse | null, extractor: ExtractorStatus | null, retryCount: number): string {
-  if (connection === 'connecting') return retryCount === 0 ? '下载服务 · 正在启动' : `下载服务 · 正在连接（第 ${retryCount} 次重试）`
-  if (health === null) return `下载服务 · 未连接，正在重试（第 ${retryCount} 次）`
-  const extractorStatus = extractor === null
-    ? '正在检查 yt-dlp'
-    : extractor.available
-      ? `yt-dlp ${extractor.version}`
-      : 'yt-dlp 未安装'
-  return `下载服务 · 连接正常\n${health.runtime.platform} · ${extractorStatus}`
-}
 
 function readThemeMode(): ThemeMode {
   try {
@@ -111,12 +105,22 @@ function uniqueTaskList(items: TaskSnapshot[]): TaskSnapshot[] {
 
 function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY)
+      if (stored !== null) return stored === 'true'
+    } catch {
+      // Keep the sidebar usable when storage is unavailable.
+    }
+    return window.matchMedia('(max-width: 760px)').matches
+  })
   const [heroTitleLength, setHeroTitleLength] = useState(0)
   const [activePlatform, setActivePlatform] = useState<Platform>(defaultPlatform)
   const [historyPlatform, setHistoryPlatform] = useState<HistoryPlatformFilter>('all')
   const [historyFilterOpen, setHistoryFilterOpen] = useState(false)
   const historyFilterRef = useRef<HTMLDivElement>(null)
   const [activeView, setActiveView] = useState<WorkspaceView>('new')
+  const [upscaleEngineSlot, setUpscaleEngineSlot] = useState<HTMLDivElement | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const inputElementRef = useRef<HTMLInputElement>(null)
@@ -230,6 +234,14 @@ function App() {
       // Keep the current session usable when storage is unavailable.
     }
   }, [themeMode])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed))
+    } catch {
+      // Keep the current session usable when storage is unavailable.
+    }
+  }, [isSidebarCollapsed])
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -715,30 +727,39 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-window-drag-region" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown} aria-hidden="true" />
         <div className="brand-lockup">
           <div className="brand-mark"><img src={logoUrl} width={35} height={35} alt="" aria-hidden="true" /></div>
           <div className="brand-name"><strong>MediaGrab</strong><span>让内容回到本地</span></div>
+          <button
+            className="sidebar-toggle tooltip-target"
+            type="button"
+            aria-label={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+            data-tooltip={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </button>
         </div>
 
         <div className="sidebar-label">工作区</div>
         <nav className="side-nav" aria-label="主导航">
-          <button className={`nav-item ${activeView === 'new' ? 'active' : ''}`} type="button" onClick={() => setActiveView('new')}><Plus /><span>新建任务</span></button>
-          <button className={`nav-item ${activeView === 'queue' ? 'active' : ''}`} type="button" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span></button>
-          <button className={`nav-item ${activeView === 'history' ? 'active' : ''}`} type="button" onClick={() => setActiveView('history')}><Clock3 /><span>历史记录</span></button>
+          <button className={`nav-item tooltip-target ${activeView === 'new' ? 'active' : ''}`} type="button" data-tooltip="新建任务" onClick={() => setActiveView('new')}><Plus /><span>新建任务</span></button>
+          <button className={`nav-item tooltip-target ${activeView === 'queue' ? 'active' : ''}`} type="button" data-tooltip="下载队列" onClick={() => setActiveView('queue')}><ListChecks /><span>下载队列</span></button>
+          <button className={`nav-item tooltip-target ${activeView === 'history' ? 'active' : ''}`} type="button" data-tooltip="历史记录" onClick={() => setActiveView('history')}><Clock3 /><span>历史记录</span></button>
         </nav>
 
         <div className="sidebar-label sources-label">媒体工具</div>
         <nav className="side-nav" aria-label="媒体工具">
-          <button className={`nav-item ${activeView === 'upscale' ? 'active' : ''}`} type="button" onClick={() => setActiveView('upscale')}><Monitor /><span>视频超分</span></button>
+          <button className={`nav-item tooltip-target ${activeView === 'upscale' ? 'active' : ''}`} type="button" data-tooltip="视频超分" onClick={() => setActiveView('upscale')}><WandSparkles /><span>视频超分</span></button>
         </nav>
 
         <div className="sidebar-label sources-label">平台来源</div>
         <nav className="source-nav" aria-label="平台筛选">
           {sourcePlatforms.map((platform) => (
-            <button key={platform.platform} type="button" className={`source-item ${platform.platform} ${activePlatform === platform.platform ? 'selected' : ''}`} onClick={() => setActivePlatform(platform.platform)}>
+            <button key={platform.platform} type="button" data-tooltip={platform.label} className={`source-item tooltip-target ${platform.platform} ${activePlatform === platform.platform ? 'selected' : ''}`} onClick={() => setActivePlatform(platform.platform)}>
               <span className="source-mark"><PlatformLogo platform={platform.platform} /></span>
               <span>{platform.label}</span>
               <span className={`source-state ${!platform.requiresExtractor || extractor?.available ? 'ready' : ''}`} />
@@ -748,14 +769,14 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="settings-link" type="button" onClick={() => setShowSettings(true)}><Settings2 /><span>设置</span></button>
+          <button className="settings-link tooltip-target" type="button" data-tooltip="设置" onClick={() => setShowSettings(true)}><Settings2 /><span>设置</span></button>
         </div>
       </aside>
 
       <main className={`main-content ${activeView !== 'new' ? 'list-view' : ''}`}>
         <header className="topbar" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown}>
           <div className="topbar-actions">
-            <button className="icon-button" type="button" title="搜索任务" aria-label="搜索任务" onClick={() => setShowTaskSearch(true)}><Search /></button>
+            <button className="icon-button" type="button" data-tooltip="搜索任务" aria-label="搜索任务" onClick={() => setShowTaskSearch(true)}><Search /></button>
             <button
               className="icon-button theme-toggle"
               type="button"
@@ -765,20 +786,12 @@ function App() {
             >
               {themeIcon}
             </button>
-            <span
-              className={`core-status tooltip-target ${coreConnection === 'disconnected' ? 'error' : coreConnection}`}
-              data-tooltip={coreStatusTooltip(coreConnection, health, extractor, coreRetryCount)}
-              aria-label={coreStatusTooltip(coreConnection, health, extractor, coreRetryCount)}
-              role="status"
-              tabIndex={0}
-            >
-              <Server />
-              <span className="core-status-dot" />
-            </span>
+            <DownloadServiceStatus connection={coreConnection} extractor={extractor} retryCount={coreRetryCount} />
+            {activeView === 'upscale' && <div className="topbar-engine-slot" ref={setUpscaleEngineSlot} />}
           </div>
         </header>
 
-        {activeView === 'upscale' && <UpscalePage />}
+        {activeView === 'upscale' && <UpscalePage engineSlot={upscaleEngineSlot} />}
 
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
@@ -805,7 +818,7 @@ function App() {
                   aria-label="媒体链接"
                 />
               </div>
-              {detectedPlatform !== null && detectedPlatform !== 'unknown' && <span className={`detected-badge ${detectedPlatform}`} title={platformLabel[detectedPlatform]} aria-label={platformLabel[detectedPlatform]}><PlatformLogo platform={detectedPlatform} /></span>}
+              {detectedPlatform !== null && detectedPlatform !== 'unknown' && <span className={`detected-badge ${detectedPlatform}`} data-tooltip={platformLabel[detectedPlatform]} aria-label={platformLabel[detectedPlatform]}><PlatformLogo platform={detectedPlatform} /></span>}
             </div>
             <button className="primary-button" type="button" onClick={() => void handleParse()} disabled={isParsing} aria-busy={isParsing}>
               {isParsing ? <LoaderCircle className="spin" /> : <Plus />}
@@ -826,7 +839,7 @@ function App() {
               <div className="mode-list">
                 {selectedGenericStream?.kind === 'image' ? <div className="mode-option selected"><span className="mode-choice"><span className="mode-radio" /><span className="mode-copy"><strong>保存图片</strong><small>保留原始图片格式；每次选择一张</small></span></span><span className="mode-check"><Check /></span></div> : modeOptions.map((option) => (
                   <div key={option.value} className={`mode-option ${mode === option.value ? 'selected' : ''} ${genericParsed !== null && !hasGenericAudio && option.value !== 'video' ? 'unavailable' : ''}`}>
-                    <button className="mode-choice" type="button" aria-pressed={mode === option.value} disabled={genericParsed !== null && !hasGenericAudio && option.value !== 'video'} title={genericParsed !== null && !hasGenericAudio && option.value !== 'video' ? '该资源没有可用音轨' : undefined} onClick={() => { modeTouchedRef.current = true; setMode(option.value) }}>
+                    <button className="mode-choice" type="button" aria-pressed={mode === option.value} disabled={genericParsed !== null && !hasGenericAudio && option.value !== 'video'} data-tooltip={genericParsed !== null && !hasGenericAudio && option.value !== 'video' ? '该资源没有可用音轨' : undefined} onClick={() => { modeTouchedRef.current = true; setMode(option.value) }}>
                       <span className="mode-radio" />
                       <span className="mode-copy"><strong>{option.label}</strong>{option.detail !== '' && <small>{option.detail}</small>}</span>
                     </button>
@@ -867,6 +880,8 @@ function App() {
           {(activeView === 'queue' ? queueTasks : historyTasks).length === 0 ? <div className="task-view-empty"><TaskIconTooltip label={activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}><Clock3 /></TaskIconTooltip><strong>{activeView === 'queue' ? '当前没有下载任务' : '还没有历史任务'}</strong><span>{activeView === 'queue' ? '从新建任务解析内容后加入下载队列。' : '下载过的任务会显示在这里，可查看结果或重新下载。'}</span></div> : <div className="task-view-list" role="list">{(activeView === 'queue' ? queueTasks : historyTasks).map((task) => <TaskRow key={task.id} task={task} selected={selectedTaskId === task.id} onSelect={setSelectedTaskId} isHistory={activeView === 'history'} downloadDirectory={health?.config.resolvedSavePath} downloadResult={downloadResults[task.id]} onStart={beginDownload} onCancel={stopTask} onRetry={retryDownload} onRemove={removeListedTask} removeLabel={activeView === 'queue' ? '删除队列任务' : '删除历史任务'} onDownloadResult={markTaskDownloaded} />)}</div>}
         </section>}
       </main>
+
+      <GlobalTooltip />
 
       {visibleNotice !== null && createPortal(
         <div key={`${visibleNotice.kind}:${visibleNotice.text}`} className={`notice global-notice ${visibleNotice.kind}`} role="status">

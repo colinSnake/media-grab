@@ -43,7 +43,7 @@ export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchD
       <section className="search-modal" role="dialog" aria-modal="true" aria-labelledby="task-search-title" onClick={(event) => event.stopPropagation()}>
         <div className="modal-heading search-heading">
           <div><h2 id="task-search-title">搜索任务</h2></div>
-          <button className="icon-button" type="button" title="关闭搜索" onClick={onClose}><X /></button>
+          <button className="icon-button" type="button" data-tooltip="关闭搜索" onClick={onClose}><X /></button>
         </div>
         <label className="search-input-wrap">
           <Search />
@@ -53,12 +53,12 @@ export function TaskSearchDialog({ open, tasks, onClose, onSelect }: TaskSearchD
         <div className="search-results">
           {results.length === 0 ? <div className="search-empty"><FileVideo2 /><strong>没有匹配的任务</strong><span>试试标题、平台或文件名中的关键词。</span></div> : results.map((task) => (
             <button className="search-result" type="button" key={task.id} onClick={() => onSelect(task)}>
-              <span className={`task-platform-icon ${task.platform}`} title={platformLabel[task.platform]}>{task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}</span>
+              <span className={`task-platform-icon ${task.platform}`} data-tooltip={platformLabel[task.platform]}>{task.platform === 'unknown' ? <FileVideo2 /> : <PlatformLogo platform={task.platform} />}</span>
               <span className="task-title">
                 <strong>{task.title || task.bvid || task.input}</strong>
                 <span className="task-meta">
-                  <span className={`task-mode-tag ${task.mode}`} title={task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}>{task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</span>
-                  {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag" title={task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}>{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
+                  <span className={`task-mode-tag ${task.mode}`} data-tooltip={task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}>{task.mode === 'image' ? '图片' : task.mode === 'audio' ? `音频 ${task.audioContainer ?? 'm4a'}` : task.mode === 'video' ? '仅视频' : '视频 + 音频'}</span>
+                  {(task.qualityLabel ?? (task.qn === undefined ? '' : qualityMeta(task.qn)?.label ?? `${task.qn}P`)) !== '' && <span className="task-resolution-tag" data-tooltip={task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}>{task.qualityLabel ?? qualityMeta(task.qn ?? 0)?.label ?? `${task.qn}P`}</span>}
                 </span>
               </span>
               <TaskStatusIndicator focusable={false} status={task.status} error={task.error} />
