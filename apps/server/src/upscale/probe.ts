@@ -4,6 +4,8 @@ import { Processes } from './process.js'
 
 // Force the MOV/MP4 demuxer, disable external data references and network protocols.
 export const localInput = ['-protocol_whitelist', 'file,pipe', '-f', 'mov', '-enable_drefs', '0', '-use_absolute_path', '0', '-threads', '2']
+// Half-millisecond input rounding plus ffprobe's decimal-print rounding.
+const inputTimelineTolerance = 0.000501
 export interface ProbeStream {
   codec_type?: string; codec_name?: string; pix_fmt?: string; width?: number; height?: number
   r_frame_rate?: string; avg_frame_rate?: string; nb_read_frames?: string; nb_frames?: string; duration?: string
@@ -29,9 +31,16 @@ export function supportedMedia(probe: Probe): UpscaleMedia {
   if (v.sample_aspect_ratio && !['1:1', 'N/A'].includes(v.sample_aspect_ratio)) throw new Error('仅支持方形像素')
   const width = v.width ?? 0, height = v.height ?? 0
   if (width < 64 || height < 64 || width > 1920 || height > 1080 || width % 2 || height % 2 || width * height > limits.maxPixels) throw new Error('尺寸须为偶数，64×64 至 1920×1080')
-  const fps = v.avg_frame_rate ?? '0/0', frames = Number(v.nb_read_frames ?? v.nb_frames), duration = Number(probe.format.duration)
-  if (!Number.isFinite(rate(fps)) || rate(fps) < 1 || rate(fps) > 60 || Math.abs(rate(v.r_frame_rate ?? '') - rate(fps)) > 0.00001) throw new Error('仅支持 1–60 fps 恒定帧率视频')
+  const fps = v.r_frame_rate ?? '0/0', frames = Number(v.nb_read_frames ?? v.nb_frames), duration = Number(probe.format.duration)
   if (!Number.isInteger(frames) || frames < 1 || frames > limits.maxFrames || !Number.isFinite(duration) || duration <= 0 || duration > limits.maxSeconds) throw new Error('无法确认帧数/时长或超过安全上限（10 分钟 / 36000 帧）')
+  const nominalFps = rate(fps), averageFps = rate(v.avg_frame_rate ?? '0/0')
+  if (!Number.isFinite(nominalFps) || nominalFps < 1 || nominalFps > 60 || !Number.isFinite(averageFps) || averageFps <= 0) throw new Error('仅支持 1–60 fps 恒定帧率视频')
+  // MP4 tick rounding can make avg_frame_rate slightly different from the actual
+  // frame grid (e.g. 738 frames / 24.5999375 s = 30.000076 fps). Bound the
+  // disagreement over the ENTIRE clip, not with a fixed fps delta that permits
+  // long-clip drift. r_frame_rate is only a candidate: timeline() still verifies
+  // every decoded frame before granting or processing the task.
+  if (Math.abs(frames / nominalFps - frames / averageFps) > inputTimelineTolerance) throw new Error('视频标称与平均帧率不一致，暂不支持可变帧率视频')
   if (!Number.isFinite(Number(v.start_time)) || !Number.isFinite(Number(v.duration)) || Math.abs(Number(v.start_time)) > 0.001 || Math.abs(Number(v.duration) - frames / rate(fps)) > 0.03) throw new Error('暂不支持非零起点或不完整视频时间线')
   if (audios[0] && (audios[0].codec_name !== 'aac' || ![1, 2].includes(Number(audios[0].channels)) || !Number.isFinite(Number(audios[0].start_time)) || Math.abs(Number(audios[0].start_time)) > 0.001 || !Number.isFinite(Number(audios[0].duration)) || Math.abs(Number(audios[0].duration) - frames / rate(fps)) > 0.1)) throw new Error('仅支持起点为零、时长匹配的单/双声道 AAC 音频，不静默删除或转码音频')
   return { width, height, fps, frames, duration: frames / rate(fps), audio: audios.length === 1 }
@@ -50,13 +59,22 @@ export async function inspect(file: string, tools: Tools, processes: Processes, 
 export async function timeline(file: string, media: UpscaleMedia, tools: Tools, processes: Processes, requireDts = false): Promise<void> {
   const data = JSON.parse(await processes.run(tools.ffprobe, ['-v', 'error', ...localInput, '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time,pkt_dts_time', '-of', 'json', file])) as { frames: Array<{ best_effort_timestamp_time?: string; pkt_dts_time?: string }> }
   if (data.frames.length !== media.frames) throw new Error('解码帧数不匹配')
-  let lastDts = -Infinity
+  // Some otherwise-CFR downloads round PTS to milliseconds (e.g. 24 fps uses
+  // alternating 41/42 ms intervals). Allow at most half a millisecond plus
+  // ffprobe's decimal-print rounding on input, measured against the global
+  // frame grid, not the previous frame: drift/dropped frames must still fail.
+  // Generated output and the zero start retain the stricter 0.1 ms check.
+  const strictTolerance = 0.0001
+  const fps = rate(media.fps)
+  let lastDts = -Infinity, lastPts = -Infinity
   for (const [i, frame] of data.frames.entries()) {
     const pts = Number(frame.best_effort_timestamp_time)
-    if (!Number.isFinite(pts) || Math.abs(pts - i / rate(media.fps)) > 0.0001) throw new Error('检测到 VFR、非零起点或异常 PTS 时间线')
+    const tolerance = requireDts || i === 0 ? strictTolerance : inputTimelineTolerance
+    if (!Number.isFinite(pts) || pts <= lastPts || Math.abs(pts - i / fps) > tolerance) throw new Error(`检测到 VFR、非零起点或异常 PTS 时间线（第 ${i + 1} 帧）`)
+    lastPts = pts
     if (frame.pkt_dts_time !== undefined) {
       const dts = Number(frame.pkt_dts_time)
-      if (!Number.isFinite(dts) || dts <= lastDts || (requireDts && Math.abs(dts - pts) > 0.0001)) throw new Error('DTS 时间线不匹配')
+      if (!Number.isFinite(dts) || dts <= lastDts || (requireDts && Math.abs(dts - pts) > strictTolerance)) throw new Error('DTS 时间线不匹配')
       lastDts = dts
     } else if (requireDts) throw new Error('输出缺少 DTS')
   }

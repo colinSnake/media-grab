@@ -6,9 +6,10 @@ import { mkdtemp, readFile, writeFile, symlink, chmod, rm, realpath } from 'node
 import os from 'node:os'
 import path from 'node:path'
 import { upscaleRecordSchema } from './record.js'
-import { sameAudioTimeline, supportedMedia, timeline } from './probe.js'
+import { inspect, sameAudioTimeline, supportedMedia, timeline } from './probe.js'
 import { pngFrames, requiredSpace, ensureSpace } from './pipeline.js'
 import { Processes } from './process.js'
+import type { Tools } from './tools.js'
 import { inputIdentity } from './service.js'
 import { upscaleCreateSchema } from '@mediagrab/shared'
 
@@ -130,6 +131,35 @@ it('checks actual PTS for hidden VFR and requires monotonic output DTS', async (
   frames[12]!.best_effort_timestamp_time = String(12 / 24); frames[12]!.pkt_dts_time = '0'
   await expect(timeline('fixture', media, tools, processFixture, true)).rejects.toThrow('DTS')
 })
+it.each(['24/1', '24000/1001', '60/1'])('accepts millisecond-rounded CFR input at %s without loosening output checks', async (fps) => {
+  const [n, d] = fps.split('/').map(Number)
+  const frameRate = n! / d!
+  // Covers an entire long clip; compare to the global grid to catch drift.
+  const media = { ...supportedMedia(probe()), fps, frames: 4464, duration: 4464 / frameRate }
+  const frames = Array.from({ length: media.frames }, (_, i) => ({ best_effort_timestamp_time: (Math.round(i / frameRate * 1000) / 1000).toFixed(6) }))
+  const processFixture = { run: async () => JSON.stringify({ frames }) } as unknown as Processes
+  const tools = { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' }
+  await expect(timeline('fixture', media, tools, processFixture)).resolves.toBeUndefined()
+  // Use an exact first DTS so output rejection is specifically due to rounded PTS.
+  const withDts = { run: async () => JSON.stringify({ frames: frames.map((f) => ({ ...f, pkt_dts_time: f.best_effort_timestamp_time })) }) } as unknown as Processes
+  await expect(timeline('fixture', media, tools, withDts, true)).rejects.toThrow('PTS')
+})
+it.each(['jitter', 'duplicate', 'missing frame', 'drift', 'nonzero start', 'invalid PTS', 'wrong count'])('still rejects %s in a millisecond-rounded input timeline', async (kind) => {
+  const media = supportedMedia(probe())
+  const frames = Array.from({ length: media.frames }, (_, i) => ({ best_effort_timestamp_time: (Math.round(i / 24 * 1000) / 1000).toFixed(6) }))
+  switch (kind) {
+    case 'jitter': frames[12]!.best_effort_timestamp_time = '0.501000'; break
+    case 'duplicate': frames[12]!.best_effort_timestamp_time = frames[11]!.best_effort_timestamp_time; break
+    case 'missing frame': for (let i = 12; i < frames.length; i++) frames[i]!.best_effort_timestamp_time = String((i + 1) / 24); break
+    case 'drift': for (let i = 0; i < frames.length; i++) frames[i]!.best_effort_timestamp_time = String(i / 24 + i * 0.0001); break
+    case 'nonzero start': for (let i = 0; i < frames.length; i++) frames[i]!.best_effort_timestamp_time = String(i / 24 + 0.0003); break
+    case 'invalid PTS': frames[12]!.best_effort_timestamp_time = 'N/A'; break
+    case 'wrong count': frames.pop(); break
+  }
+  const processFixture = { run: async () => JSON.stringify({ frames }) } as unknown as Processes
+  const tools = { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' }
+  await expect(timeline('fixture', media, tools, processFixture)).rejects.toThrow(/PTS|帧数/)
+})
 it('requires exact AAC packet timestamps and durations after stream copy', () => {
   const original = [{ pts_time: '0.000000', dts_time: '0.000000', duration_time: '0.021333' }, { pts_time: '0.021333', dts_time: '0.021333', duration_time: '0.021333' }]
   expect(sameAudioTimeline(original, structuredClone(original))).toBe(true)
@@ -167,4 +197,59 @@ it('validates persisted snapshots at the storage trust boundary', () => {
     { ...base, task: { ...base.task, stage: 'untrusted' } },
     { ...base, task: { ...base.task, result: { path: '/tmp/out', bytes: 1, sha256: 'not-hash' } } },
   ]) expect(upscaleRecordSchema.safeParse(invalid).success).toBe(false)
+})
+
+
+function roundedThirtyFpsProbe() {
+  const fixture = probe()
+  Object.assign(fixture.streams[0]!, { r_frame_rate: '30/1', avg_frame_rate: '11808000/393599', nb_frames: '738', nb_read_frames: '738', duration: '24.599937' })
+  fixture.format.duration = '24.618292'
+  return fixture
+}
+
+describe('CFR frame-rate metadata rounding', () => {
+  it('recognizes the 738-frame MV as exactly 30 fps instead of rejecting 30.000076 average metadata', async () => {
+    const media = supportedMedia(roundedThirtyFpsProbe())
+    expect(media).toMatchObject({ fps: '30/1', frames: 738, duration: 24.6 })
+    const frames = Array.from({ length: media.frames }, (_, i) => ({ best_effort_timestamp_time: (Math.round(i / 30 * 16000) / 16000).toFixed(6) }))
+    const fixtureProcesses = { run: async () => JSON.stringify({ frames }) } as unknown as Processes
+    await expect(timeline('fixture', media, { ffprobe: 'fixture' } as Tools, fixtureProcesses)).resolves.toBeUndefined()
+    frames[369]!.best_effort_timestamp_time = String(369 / 30 + 0.004)
+    await expect(timeline('fixture', media, { ffprobe: 'fixture' } as Tools, fixtureProcesses)).rejects.toThrow('VFR')
+  })
+  it.each(['24/1', '24000/1001', '30000/1001', '30/1', '60/1'])('normalizes bounded average-rate rounding at %s, including the 60 fps boundary', (fps) => {
+    const [n, d] = fps.split('/').map(Number)
+    for (const tickOffset of [-1, 1]) {
+      const fixture = probe(), frames = 738
+      const ticks = Math.round(frames / (n! / d!) * 16000) + tickOffset
+      Object.assign(fixture.streams[0]!, { r_frame_rate: fps, avg_frame_rate: `${frames * 16000}/${ticks}`, nb_frames: String(frames), nb_read_frames: String(frames), duration: String(ticks / 16000) })
+      fixture.format.duration = String(ticks / 16000)
+      expect(supportedMedia(fixture)).toMatchObject({ fps, frames, duration: frames / (n! / d!) })
+    }
+  })
+  it('allows the same rounded metadata through both preliminary and decoded-count inspection', async () => {
+    const preliminary = roundedThirtyFpsProbe()
+    delete (preliminary.streams[0]! as { nb_read_frames?: string }).nb_read_frames
+    const calls: string[][] = []
+    const fixtureProcesses = { run: async (_tool: string, args: string[]) => { calls.push(args); return JSON.stringify(args.includes('-count_frames') ? roundedThirtyFpsProbe() : preliminary) } } as unknown as Processes
+    const inspected = await inspect('fixture', { ffprobe: 'fixture' } as Tools, fixtureProcesses)
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toContain('-count_frames')
+    expect(supportedMedia(inspected).fps).toBe('30/1')
+  })
+  it('bounds cumulative drift even when the raw fps difference is tiny', () => {
+    const fixture = probe()
+    Object.assign(fixture.streams[0]!, { r_frame_rate: '60/1', avg_frame_rate: '60000060/1000000', nb_frames: '36000', nb_read_frames: '36000', duration: '600' })
+    fixture.format.duration = '600'
+    expect(() => supportedMedia(fixture)).toThrow('标称与平均帧率不一致')
+  })
+  it.each([
+    ['30/1', '30000/1001'], ['60/1', '30/1'], ['0/0', '30/1'],
+    ['30/1', '0/0'], ['30/1', 'N/A'], ['61/1', '61/1'], ['1/2', '1/2'],
+    ['30/1', '-30/1'], ['30/0', '30/1'],
+  ])('rejects unbounded or invalid frame-rate metadata %s / %s', (nominal, average) => {
+    const fixture = roundedThirtyFpsProbe()
+    Object.assign(fixture.streams[0]!, { r_frame_rate: nominal, avg_frame_rate: average })
+    expect(() => supportedMedia(fixture)).toThrow(/帧率/)
+  })
 })

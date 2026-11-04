@@ -60,22 +60,28 @@ export async function pipeline(input: string, work: string, tools: Tools, proces
   const originalAudioTimeline = media.audio ? await audioTimeline(input, tools, processes) : undefined
   const decoded = path.join(work, 'in'), enhanced = path.join(work, 'out'), candidate = path.join(work, 'candidate.mp4')
   await mkdir(decoded); await mkdir(enhanced)
-  const decoder = processes.start(tools.ffmpeg, ['-v', 'error', '-xerror', ...localInput, '-i', input, '-map', '0:v:0', '-an', '-fps_mode', 'passthrough', '-threads', '2', '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'])
+  const decoder = processes.start(tools.ffmpeg, ['-v', 'error', '-xerror', ...localInput, '-i', input, '-map', '0:v:0', '-an', '-fps_mode', 'passthrough', '-threads', '2', '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], { timeoutMode: 'idle' })
   decoder.child.stdin.end()
-  const encoder = processes.start(tools.ffmpeg, ['-v', 'error', '-xerror', '-n', '-threads', '2', '-probesize', '32', '-analyzeduration', '0', '-f', 'image2pipe', '-framerate', media.fps, '-vcodec', 'png', '-i', 'pipe:0', ...localInput, '-i', input, '-map', '0:v:0', ...(media.audio ? ['-map', '1:a:0', '-c:a', 'copy'] : ['-an']), '-map_metadata', '-1', '-map_chapters', '-1', '-vf', 'scale=in_range=full:out_range=tv:out_color_matrix=bt709,setsar=1', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '80M', '-bufsize', '160M', '-x264-params', 'rc-lookahead=8:sync-lookahead=0', '-threads', '4', '-bf', '0', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart', candidate])
+  const encoder = processes.start(tools.ffmpeg, ['-v', 'error', '-xerror', '-n', '-threads', '2', '-probesize', '32', '-analyzeduration', '0', '-f', 'image2pipe', '-framerate', media.fps, '-vcodec', 'png', '-i', 'pipe:0', ...localInput, '-i', input, '-map', '0:v:0', ...(media.audio ? ['-map', '1:a:0', '-c:a', 'copy'] : ['-an']), '-map_metadata', '-1', '-map_chapters', '-1', '-vf', 'scale=in_range=full:out_range=tv:out_color_matrix=bt709,setsar=1', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-maxrate', '80M', '-bufsize', '160M', '-x264-params', 'rc-lookahead=8:sync-lookahead=0', '-threads', '4', '-bf', '0', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart', candidate], { timeoutMode: 'idle' })
   encoder.child.stdout.resume()
+  // Decode/encode can wait on each other for hours while AI batches make progress.
+  // Renew only on actual frame/batch progress, never on an unconditional interval.
+  const heartbeat = (): void => { decoder.heartbeat(); encoder.heartbeat() }
   let completed = 0, batch = 0
   const flush = async (): Promise<void> => {
     processes.signal.throwIfAborted()
     await checkSpace(work, media, (await stat(input)).size)
+    heartbeat()
     update('upscaling', completed)
     await processes.run(tools.engine, ['-i', decoded, '-o', enhanced, '-m', tools.models, '-n', 'realesr-animevideov3', '-s', '2', '-t', String(limits.tile), '-j', '1:1:1', '-f', 'png'], 1024 * 1024)
+    heartbeat()
     update('encoding', completed)
     for (let i = 0; i < batch; i++) {
       const name = `${String(i).padStart(6, '0')}.png`
       const frame = await readFile(path.join(enhanced, name))
       if (frame.readUInt32BE(16) !== media.width * 2 || frame.readUInt32BE(20) !== media.height * 2) throw new Error('引擎输出不是精确 2× 帧')
       try { await write(encoder.child.stdin, frame) } catch (error) { await encoder.done; throw error }
+      heartbeat()
       completed++
       update('encoding', completed)
       await rm(path.join(decoded, name)); await rm(path.join(enhanced, name))
@@ -85,6 +91,7 @@ export async function pipeline(input: string, work: string, tools: Tools, proces
   for await (const frame of pngFrames(decoder.child.stdout)) {
     processes.signal.throwIfAborted()
     if (completed + batch >= media.frames) throw new Error('解码帧超出探测帧数')
+    heartbeat()
     update('decoding', completed)
     await writeFile(path.join(decoded, `${String(batch).padStart(6, '0')}.png`), frame, { flag: 'wx' })
     if (++batch === limits.batch) await flush()

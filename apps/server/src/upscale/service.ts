@@ -10,6 +10,7 @@ import { inspect, supportedMedia, timeline } from './probe.js'
 import { checkSpace, pipeline } from './pipeline.js'
 import { checkAtomicOutput } from './output.js'
 import { upscaleRecordSchema } from './record.js'
+import { firstFrame } from './thumbnail.js'
 
 export function invalid(message: string, statusCode = 400): Error & { statusCode: number } { return Object.assign(new Error(message), { statusCode }) }
 export async function inputIdentity(file: string): Promise<string> {
@@ -31,6 +32,10 @@ interface Record { task: UpscaleTask; identity: string; work?: string }
 export class UpscaleService {
   private records = new Map<string, Record>()
   private grants = new Map<string, Grant>()
+  private thumbnails = new Map<string, Buffer>()
+  private thumbnailRequests = new Map<string, Promise<Buffer>>()
+  private thumbnailTail: Promise<void> = Promise.resolve()
+  private thumbnailBusy = false
   private listeners = new Set<(event: UpscaleEvent) => void>()
   private active?: { id: string; abort: AbortController; promise: Promise<void>; committing: boolean }
   private shutdown = new AbortController()
@@ -66,6 +71,44 @@ export class UpscaleService {
   }
   list(): UpscaleTask[] { return [...this.records.values()].map((r) => structuredClone(r.task)).reverse().slice(0, 100) }
   get(id: string): UpscaleTask { const r = this.records.get(id); if (!r) throw invalid('超分任务不存在', 404); return structuredClone(r.task) }
+  async thumbnail(id: string): Promise<Buffer> {
+    await this.ready
+    if (this.closing) throw invalid('服务正在关闭', 503)
+    const record = this.records.get(id)
+    if (!record) throw invalid('超分任务不存在', 404)
+    const verify = async () => {
+      if (await inputIdentity(record.task.input) !== record.identity) throw invalid('源文件发生变化，无法读取封面', 409)
+      if (this.records.get(id) !== record) throw invalid('超分任务不存在', 404)
+    }
+    await verify()
+    const cached = this.thumbnails.get(id)
+    if (cached) { this.thumbnails.delete(id); this.thumbnails.set(id, cached); return cached }
+    const existing = this.thumbnailRequests.get(id)
+    if (existing) return existing
+    // Serialize tiny decodes so scrolling a long queue cannot compete with inference.
+    if (this.thumbnailRequests.size >= 8) throw invalid('封面加载繁忙，请稍后重试', 429)
+    const request = this.thumbnailTail.then(async () => {
+      this.thumbnailBusy = true
+      try {
+        while (this.active) await this.active.promise
+        this.shutdown.signal.throwIfAborted()
+        await verify()
+        const { tools } = await this.capabilities()
+        if (!tools) throw invalid('本地视频解码引擎不可用', 503)
+        const image = await firstFrame(tools.ffmpeg, record.task.input, this.shutdown.signal)
+        await verify()
+        this.thumbnails.set(id, image)
+        if (this.thumbnails.size > 32) this.thumbnails.delete(this.thumbnails.keys().next().value!)
+        return image
+      } finally {
+        this.thumbnailBusy = false
+        this.pump()
+      }
+    }).finally(() => { this.thumbnailRequests.delete(id) })
+    this.thumbnailRequests.set(id, request)
+    this.thumbnailTail = request.then(() => {}, () => {})
+    return request
+  }
   subscribe(fn: (event: UpscaleEvent) => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn) }
   async authorize(input: string, directory: string): Promise<{ grant: string; media: UpscaleMedia }> {
     if (this.closing) throw invalid('服务正在关闭', 503)
@@ -124,8 +167,23 @@ export class UpscaleService {
     } else if (r.task.status === 'queued') { r.task.status = 'cancelled'; this.save(r) }
     return structuredClone(r.task)
   }
+  async remove(id: string): Promise<void> {
+    await this.ready
+    const r = this.records.get(id)
+    if (!r) throw invalid('超分任务不存在', 404)
+    if (r.task.status === 'running') throw invalid('请先取消处理中的任务，再删除记录', 409)
+    // Terminal status is published before finally{} completes. Never let late cleanup
+    // save() resurrect a deleted record or race the no-overwrite output commit.
+    if (this.active?.id === id) await this.active.promise
+    if (this.records.get(id) !== r) throw invalid('超分任务不存在', 404)
+    if (r.work) await this.cleanup(r)
+    if (r.work) throw invalid('临时目录清理未完成，保留任务记录供检查，请稍后重试', 409)
+    this.db.prepare('DELETE FROM upscale_tasks WHERE id=?').run(id)
+    this.records.delete(id)
+    this.thumbnails.delete(id)
+  }
   private pump(): void {
-    if (this.active || this.closing) return
+    if (this.active || this.thumbnailBusy || this.closing) return
     const r = [...this.records.values()].find((r) => r.task.status === 'queued')
     if (!r) return
     const abort = new AbortController()
@@ -184,6 +242,7 @@ export class UpscaleService {
   async close(): Promise<void> {
     this.closing = true; this.shutdown.abort(); this.active?.abort.abort()
     for (const r of this.records.values()) if (r.task.status === 'queued') { r.task.status = 'interrupted'; this.save(r) }
-    await this.active?.promise; await this.ready
+    await this.active?.promise; await this.ready; await this.thumbnailTail
+    this.thumbnails.clear()
   }
 }

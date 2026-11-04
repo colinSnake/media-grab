@@ -28,9 +28,12 @@ vi.mock('node:fs/promises', async (original) => {
     return actual.link(src, dest)
   } }
 })
+vi.mock('./thumbnail.js', () => ({ firstFrame: vi.fn(async () => Buffer.from('89504e470d0a1a0a', 'hex')) }))
+import { firstFrame } from './thumbnail.js'
 import { UpscaleService } from './service.js'
 let root: string, db: Database, service: UpscaleService, input: string
 beforeEach(async () => {
+  vi.mocked(firstFrame).mockClear()
   Object.assign(control, { mode: 'success', inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined, beforeLink: undefined })
   root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-lifecycle-')))
   input = path.join(root, 'input.mp4'); await writeFile(input, 'original')
@@ -51,9 +54,18 @@ describe('isolated upscale task lifecycle (mocked inference, not quality evidenc
   it('detects source changes after authorization', async () => {
     const g = await grant(); await writeFile(input, 'replaced source'); await expect(service.create({ grant: g.grant, fileName: 'new.mp4' })).rejects.toThrow('变化')
   })
+  it('uses the normalized MP4 name and preserves the grant on filename validation errors', async () => {
+    const g = await grant()
+    await expect(service.create({ grant: g.grant, fileName: '../out' })).rejects.toThrow('目录')
+    const task = await service.create({ grant: g.grant, fileName: '  难却-2x  ' })
+    expect(task.output).toBe(path.join(root, '难却-2x.mp4'))
+    expect((await terminal(task.id)).status).toBe('succeeded')
+  })
   it('never overwrites an existing output or the source', async () => {
     const g = await grant(); await expect(service.create({ grant: g.grant, fileName: 'input.mp4' })).rejects.toThrow('源文件')
     const h = await grant(); await writeFile(path.join(root, 'taken.mp4'), 'existing'); await expect(service.create({ grant: h.grant, fileName: 'taken.mp4' })).rejects.toThrow('已存在')
+    const normalizedSource = await grant(); await expect(service.create({ grant: normalizedSource.grant, fileName: ' input ' })).rejects.toThrow('源文件')
+    const normalizedExisting = await grant(); await expect(service.create({ grant: normalizedExisting.grant, fileName: ' taken ' })).rejects.toThrow('已存在')
   })
   it('queues separately, allows only one inference, and cancels queued/running jobs', async () => {
     control.mode = 'wait'
@@ -107,7 +119,7 @@ it('rejects filesystems without hardlinks before inference and cleans its check 
 })
 it('enforces filename validation even for direct service callers', async () => {
   const g = await grant()
-  await expect(service.create({ grant: g.grant, fileName: '../escape.mp4' })).rejects.toThrow('MP4')
+  await expect(service.create({ grant: g.grant, fileName: '../escape.mp4' })).rejects.toThrow('目录')
   await expect(service.create({ grant: g.grant, fileName: '中'.repeat(100) + '.mp4' })).rejects.toThrow('过长')
   expect(control.peak).toBe(0)
 })
@@ -146,4 +158,139 @@ it('cleans terminal-state work after a crash without deleting the published resu
   expect(service.get(id).status).toBe('succeeded')
   await expect(stat(work)).rejects.toThrow()
   expect(await readFile(output, 'utf8')).toBe('published')
+})
+
+describe('deleting upscale task records without deleting source or output', () => {
+  it('deletes succeeded history durably but keeps the published video and source', async () => {
+    const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'keep-result.mp4' })
+    expect((await terminal(task.id)).status).toBe('succeeded')
+    await service.remove(task.id)
+    expect(service.list()).toEqual([])
+    expect(() => service.get(task.id)).toThrow('不存在')
+    expect(db.prepare('SELECT id FROM upscale_tasks WHERE id=?').get(task.id)).toBeUndefined()
+    expect(await readFile(input, 'utf8')).toBe('original')
+    expect(await readFile(task.output, 'utf8')).toBe('unit fixture, not real upscale')
+    await service.close(); service = new UpscaleService(db)
+    expect(service.list()).toEqual([])
+  })
+  it('deletes failed and cancelled records after awaiting their pending cleanup', async () => {
+    for (const mode of ['fail', 'wait']) {
+      control.mode = mode
+      const g = await grant(), task = await service.create({ grant: g.grant, fileName: `${mode}.mp4` })
+      if (mode === 'wait') service.cancel(task.id)
+      // Poll without terminal()'s extra delay: removal must handle the cleanup race.
+      while (['queued', 'running'].includes(service.get(task.id).status)) await new Promise((resolve) => setTimeout(resolve, 1))
+      await service.remove(task.id)
+      expect(db.prepare('SELECT id FROM upscale_tasks WHERE id=?').get(task.id)).toBeUndefined()
+    }
+    const { readdir } = await import('node:fs/promises')
+    expect((await readdir(root)).filter((name) => name.startsWith('.mediagrab-upscale-'))).toEqual([])
+    expect(await readFile(input, 'utf8')).toBe('original')
+  })
+  it('removes queued tasks but refuses a running task until cancelled', async () => {
+    control.mode = 'wait'
+    const a = await grant(), b = await grant()
+    const running = await service.create({ grant: a.grant, fileName: 'running.mp4' })
+    const queued = await service.create({ grant: b.grant, fileName: 'queued.mp4' })
+    expect(service.get(queued.id).status).toBe('queued')
+    await expect(service.remove(running.id)).rejects.toMatchObject({ statusCode: 409 })
+    await service.remove(queued.id)
+    expect(service.list().map((task) => task.id)).toEqual([running.id])
+    service.cancel(running.id); await terminal(running.id); await service.remove(running.id)
+    await expect(service.remove(queued.id)).rejects.toMatchObject({ statusCode: 404 })
+  })
+  it('refuses deletion during the atomic output commit', async () => {
+    control.blockCommit = true
+    let signalCommit!: () => void
+    const atCommit = new Promise<void>((resolve) => { signalCommit = resolve }); control.beforeLink = signalCommit
+    const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'commit-delete.mp4' })
+    await atCommit
+    await expect(service.remove(task.id)).rejects.toMatchObject({ statusCode: 409 })
+    control.releaseCommit?.(); await terminal(task.id); await service.remove(task.id)
+    expect(await readFile(task.output, 'utf8')).toBe('unit fixture, not real upscale')
+  })
+  it('retains ownership evidence if an unsafe work directory cannot be cleaned', async () => {
+    await service.close()
+    const id = randomUUID(), work = path.join(root, `.mediagrab-upscale-${id}-foreign`)
+    await mkdir(work); await writeFile(path.join(work, 'owner.json'), JSON.stringify({ id: 'not-ours' }))
+    const task = { id, input, output: path.join(root, 'interrupted.mp4'), model: 'realesr-animevideov3-x2', status: 'interrupted', stage: 'encoding', completedFrames: 1, createdAt: 1, updatedAt: 1 }
+    db.prepare('INSERT INTO upscale_tasks VALUES(?,?,?)').run(id, JSON.stringify({ task, work, identity: 'old' }), 1)
+    service = new UpscaleService(db)
+    await expect(service.remove(id)).rejects.toMatchObject({ statusCode: 409 })
+    expect((await stat(work)).isDirectory()).toBe(true)
+    expect(service.get(id).status).toBe('interrupted')
+  })
+  it('deletes recovered interrupted records after owned startup cleanup', async () => {
+    await service.close()
+    const id = randomUUID(), work = path.join(root, `.mediagrab-upscale-${id}-owned`)
+    await mkdir(work); await writeFile(path.join(work, 'owner.json'), JSON.stringify({ id }))
+    const task = { id, input, output: path.join(root, 'old.mp4'), model: 'realesr-animevideov3-x2', status: 'running', stage: 'encoding', completedFrames: 1, createdAt: 1, updatedAt: 1 }
+    db.prepare('INSERT INTO upscale_tasks VALUES(?,?,?)').run(id, JSON.stringify({ task, work, identity: 'old' }), 1)
+    service = new UpscaleService(db); await service.remove(id)
+    expect(service.list()).toEqual([]); await expect(stat(work)).rejects.toThrow()
+    expect(await readFile(input, 'utf8')).toBe('original')
+  })
+})
+
+
+describe('task-bound first-frame thumbnails', () => {
+  const finished = async () => { const g = await grant(); const task = await service.create({ grant: g.grant, fileName: 'cover.mp4' }); await terminal(task.id); return task }
+  it('only decodes recorded source paths and reuses cached frames without touching output files', async () => {
+    const task = await finished()
+    const before = await stat(input)
+    expect(await service.thumbnail(task.id)).toEqual(Buffer.from('89504e470d0a1a0a', 'hex'))
+    await service.thumbnail(task.id)
+    expect(firstFrame).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(firstFrame).mock.calls[0]?.slice(0, 2)).toEqual(['fixture', input])
+    expect((await stat(input)).mtimeMs).toBe(before.mtimeMs)
+    await expect(service.thumbnail(randomUUID())).rejects.toThrow('不存在')
+  })
+  it('refuses cached covers once the authorized source changes and clears deleted task covers', async () => {
+    const task = await finished()
+    await service.thumbnail(task.id)
+    await writeFile(input, 'changed')
+    await expect(service.thumbnail(task.id)).rejects.toThrow('变化')
+    expect(firstFrame).toHaveBeenCalledTimes(1)
+    await service.remove(task.id)
+    await expect(service.thumbnail(task.id)).rejects.toThrow('不存在')
+  })
+  it('deduplicates concurrent requests and does not retain failed decodes', async () => {
+    const task = await finished()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(firstFrame).mockImplementationOnce(async () => { await gate; throw new Error('fixture cover failure') })
+    const results = Promise.allSettled([service.thumbnail(task.id), service.thumbnail(task.id)])
+    for (let i = 0; i < 30 && !vi.mocked(firstFrame).mock.calls.length; i++) await new Promise((resolve) => setTimeout(resolve, 2))
+    release()
+    expect((await results).map((result) => result.status)).toEqual(['rejected', 'rejected'])
+    expect(firstFrame).toHaveBeenCalledTimes(1)
+    await service.thumbnail(task.id)
+    expect(firstFrame).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+it('rejects a source replaced while its first frame is being decoded', async () => {
+  const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'cover-race.mp4' }); await terminal(task.id)
+  vi.mocked(firstFrame).mockImplementationOnce(async () => { await writeFile(input, 'replaced during thumbnail'); return Buffer.from('89504e470d0a1a0a', 'hex') })
+  await expect(service.thumbnail(task.id)).rejects.toThrow('变化')
+})
+it('does not retain or return an in-flight cover after deleting its task', async () => {
+  const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'cover-delete.mp4' }); await terminal(task.id)
+  vi.mocked(firstFrame).mockImplementationOnce(async () => { await service.remove(task.id); return Buffer.from('89504e470d0a1a0a', 'hex') })
+  await expect(service.thumbnail(task.id)).rejects.toThrow('不存在')
+  expect(service.list()).toEqual([])
+})
+
+it('serializes cover decoding behind active inference to avoid competing with upscale', async () => {
+  control.mode = 'wait'
+  const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'cover-after-job.mp4' })
+  for (let i = 0; i < 50 && service.get(task.id).status !== 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 2))
+  const cover = service.thumbnail(task.id)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(firstFrame).not.toHaveBeenCalled()
+  service.cancel(task.id)
+  expect((await terminal(task.id)).status).toBe('cancelled')
+  expect(await cover).toEqual(Buffer.from('89504e470d0a1a0a', 'hex'))
+  expect(firstFrame).toHaveBeenCalledTimes(1)
 })

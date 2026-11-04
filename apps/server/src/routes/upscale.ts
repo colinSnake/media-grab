@@ -17,6 +17,10 @@ export const upscaleRoutes: FastifyPluginAsync<{ services: Services; coreToken?:
   })
   app.get('/api/upscale/capability', async () => (await services.upscale.capabilities()).capability)
   app.get('/api/upscale/tasks', async () => ({ tasks: services.upscale.list() }))
+  app.get<{ Params: { id: string } }>('/api/upscale/tasks/:id/thumbnail', async (req, reply) => {
+    const image = await services.upscale.thumbnail(req.params.id)
+    return reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').type('image/png').send(image)
+  })
   app.post('/api/upscale/grants', async (req) => {
     const parsed = grantSchema.safeParse(req.body)
     if (!parsed.success) throw invalid('文件选择参数不合法')
@@ -31,6 +35,10 @@ export const upscaleRoutes: FastifyPluginAsync<{ services: Services; coreToken?:
     const parsed = upscaleCreateSchema.safeParse(req.body)
     if (!parsed.success) throw invalid('任务参数不合法，请检查输出文件名')
     return services.upscale.create(parsed.data)
+  })
+  app.delete<{ Params: { id: string } }>('/api/upscale/tasks/:id', async (req, reply) => {
+    await services.upscale.remove(req.params.id)
+    return reply.status(204).send()
   })
   app.post<{ Params: { id: string } }>('/api/upscale/tasks/:id/cancel', async (req) => services.upscale.cancel(req.params.id))
 }
