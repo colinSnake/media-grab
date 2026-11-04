@@ -23,9 +23,11 @@ MediaGrab 是一款面向个人用户的本地媒体工作台，目标是把链�
 | macOS Apple Silicon（M 系列芯片） | `MediaGrab_0.1.0_aarch64.dmg` |
 | macOS Intel | `MediaGrab_0.1.0_x64.dmg` |
 | Windows x64（Intel/AMD 64 位） | `MediaGrab_0.1.0_x64-setup.exe` |
-| Linux x64 | `MediaGrab_0.1.0_amd64.deb` 或 `MediaGrab_0.1.0_amd64.AppImage` |
+| Linux x64 | `MediaGrab_0.1.0_amd64.AppImage` |
 
-四个构建目标均已通过 CI 构建和安装后烟测。当前仍是早期预览版：安装包尚未签名或完成 Apple 公证，实机验收仍在继续。附件同时提供 `SHA256SUMS.txt` 校验清单和媒体工具源码/构建记录压缩包。
+四个构建目标均已通过 CI 构建和安装后烟测。当前仍是早期预览版：安装包尚未签名或完成 Apple 公证，实机验收仍在继续。每个安装包的 SHA-256 可在 Release 附件信息中查看。
+
+Release 页面自动显示的 **Source code** 压缩包是 GitHub 提供的源码快照，不是安装包。
 
 ## 项目缘起与愿景
 

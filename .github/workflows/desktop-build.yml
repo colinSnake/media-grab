@@ -196,29 +196,25 @@ jobs:
         with:
           name: MediaGrab-linux-x64
           path: artifacts/linux-x64
-      - name: Download media-tool sources and build records
-        uses: actions/download-artifact@v4
-        with:
-          pattern: MediaGrab-*-tool-sources
-          path: tool-sources
       - name: Prepare release assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir release-assets
-          find artifacts -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -print0 |
-            while IFS= read -r -d '' file; do
-              cp "$file" release-assets/
-            done
-          count=$(find release-assets -maxdepth 1 -type f | wc -l)
-          test "$count" -eq 5 || { echo "Expected 5 installers, found $count" >&2; exit 1; }
-          for target in darwin-arm64 darwin-x64 win32-x64 linux-x64; do
-            source_dir="tool-sources/MediaGrab-$target-tool-sources"
-            test -d "$source_dir/sources"
-            test -d "$source_dir/build-records"
-            tar -czf "release-assets/MediaGrab-$target-tool-sources.tar.gz" -C "$source_dir" sources build-records
+          for target in darwin-arm64 darwin-x64 win32-x64; do
+            case "$target" in
+              darwin-*) pattern='*.dmg' ;;
+              win32-*) pattern='*.exe' ;;
+            esac
+            mapfile -t files < <(find "artifacts/$target" -maxdepth 1 -type f -name "$pattern" | sort)
+            test "${#files[@]}" -eq 1 || { echo "Expected one $pattern installer for $target" >&2; exit 1; }
+            cp "${files[0]}" release-assets/
           done
-          (cd release-assets && sha256sum *.dmg *.exe *.deb *.AppImage *.tar.gz > SHA256SUMS.txt)
+          mapfile -t linux_files < <(find artifacts/linux-x64 -maxdepth 1 -type f -name '*.AppImage' | sort)
+          test "${#linux_files[@]}" -eq 1 || { echo "Expected one Linux AppImage" >&2; exit 1; }
+          cp "${linux_files[0]}" release-assets/
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          test "$count" -eq 4 || { echo "Expected 4 installers, found $count" >&2; exit 1; }
           ls -lh release-assets
       - name: Create draft release
         env:

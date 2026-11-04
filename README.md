@@ -23,9 +23,11 @@ Choose the installer for your system from the release page's **Assets**:
 | macOS Apple Silicon (M series) | `MediaGrab_0.1.0_aarch64.dmg` |
 | macOS Intel | `MediaGrab_0.1.0_x64.dmg` |
 | Windows x64 (64-bit Intel/AMD) | `MediaGrab_0.1.0_x64-setup.exe` |
-| Linux x64 | `MediaGrab_0.1.0_amd64.deb` or `MediaGrab_0.1.0_amd64.AppImage` |
+| Linux x64 | `MediaGrab_0.1.0_amd64.AppImage` |
 
-All four build targets passed CI builds and installed-package smoke tests. This is an early preview: installers are unsigned and have not been notarized by Apple, and real-device testing is ongoing. The release also includes `SHA256SUMS.txt` and media-tool source/build archives.
+All four build targets passed CI builds and installed-package smoke tests. This is an early preview: installers are unsigned and have not been notarized by Apple, and real-device testing is ongoing. SHA-256 digests are shown with each release asset.
+
+The **Source code** archives shown on the release page are GitHub-generated source snapshots, not installers.
 
 ## Why MediaGrab
 
