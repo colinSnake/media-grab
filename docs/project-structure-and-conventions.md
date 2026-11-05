@@ -23,6 +23,7 @@ media-grab/
 │  │     ├─ store/               SQLite schema、连接及仓储
 │  │     ├─ platform/            平台注册与 extractor 适配
 │  │     ├─ bili/                B站网络协议及解析实现
+│  │     ├─ upscale/             本地超分准入、队列、子进程、首帧和成片校验
 │  │     ├─ accounts/            账号元数据与本地凭据保管
 │  │     ├─ lib/                 配置、时钟、重试、校验等通用设施
 │  │     ├─ services.ts          服务依赖组装
@@ -87,3 +88,11 @@ media-grab/
 - 自动保存失败须在对应字段保留可见错误，不能被后续字段保存成功的提示覆盖；修改全局默认输出不得覆盖当前任务手动选择的模式，下一次新任务才使用更新后的默认值。
 - `lib/options.ts` 集中新建任务和设置共用的下载模式选项。
 - `App.tsx` 负责工作台流程状态以及各视图组合，不负责重复绘制任务行、解析预览或设置表单。
+
+
+## 视频超分与全局状态职责
+
+- `components/UpscaleEngineProvider.tsx`：应用层引擎能力状态；右上角常驻图标和超分页面共同消费，刷新与核心重连统一检查，不随标签页切换卸载。
+- `components/UpscaleEngineStatus.tsx` / `ServiceStatusPopover.tsx`：芯片入口、状态详情与刷新展示；与下载服务共用浮层主题及交互。
+- `components/UpscalePage.tsx` / `lib/upscale-probe.ts`：原生选择、自动准入、发起任务和页面队列轮询；不再负责创建标题栏状态入口。
+- `components/UpscaleTaskCard.tsx` / `UpscaleTaskCover.tsx` / `UpscaleTaskFilter.tsx`：单项任务、首帧封面与筛选展示；与下载任务保持独立，不将本地超分视为平台下载类型。

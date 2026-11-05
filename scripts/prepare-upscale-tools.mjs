@@ -32,7 +32,17 @@ let review
 if (!development) {
   for (const key of ['UPSCALER_LICENSE_DIR', 'UPSCALER_REVIEW_MANIFEST']) if (!path.isAbsolute(process.env[key] ?? '')) throw new Error(`Release staging requires absolute ${key}`)
   review = JSON.parse(await readFile(process.env.UPSCALER_REVIEW_MANIFEST, 'utf8'))
-  if (review.redistributionReviewed !== true || !review.engineSource || !review.modelSource || !review.ffmpegSource || !review.ffprobeSource) throw new Error('Incomplete provenance / redistribution review')
+  const reviewedInputs = Object.keys(inputs)
+  if (
+    !review || review.schemaVersion !== 1 || review.redistributionReviewed !== true
+    || review.target !== 'darwin-arm64' || review.decision !== 'approved'
+    || typeof review.reviewedBy !== 'string' || !review.reviewedBy.trim()
+    || typeof review.reviewedAt !== 'string' || !Number.isFinite(Date.parse(review.reviewedAt))
+    || !Array.isArray(review.evidence) || !review.evidence.length
+    || review.evidence.some((item) => typeof item !== 'string' || !item.trim())
+    || ['engineSource', 'modelSource', 'ffmpegSource', 'ffprobeSource'].some((key) => typeof review[key] !== 'string' || !review[key].trim())
+    || reviewedInputs.some((name) => !/^[a-f0-9]{64}$/.test(review.files?.[name] ?? ''))
+  ) throw new Error('Incomplete provenance / redistribution review manifest')
 }
 const sourceHashes = {}, versions = {}, sources = {}, noticeData = {}
 // Validate ALL inputs before executing an input binary or creating a runtime directory.

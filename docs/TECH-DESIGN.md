@@ -167,3 +167,10 @@ SQLite 至少包含 `settings`、`platform_state`、`tasks` 三类数据。下�
 发行版桌面壳每次启动用操作系统随机源生成 256 位会话凭据，只通过子进程环境变量交给 Node core。Rust 命令用随机 128 位 nonce 请求健康接口，校验由 core 基于会话凭据生成的 HMAC-SHA256 后才允许 WebView 取得凭据；端口被未知进程占用时不得将凭据发给对方。`/api/health` 保留只读无凭据访问供启动检查；其余 `/api/*`（含 WebSocket）要求 HTTP 头或 WebSocket 子协议认证，封面/视频预览的 GET 子资源通过限定路径的查询参数认证，日志记录时移除完整查询串。开发模式继续使用 Vite 代理，不生成发行版凭据。
 
 发行包的端口抢占、通知权限及图文图片实际访问仍需真机/CI runner 验收。会话凭据降低任意本机服务假冒风险，但不承诺抵御能读取同用户进程环境或 WebView 内存的恶意程序。
+
+
+## 视频超分状态与任务边界（2026-11-05）
+
+- `UpscaleEngineProvider` 位于 `App` 工作台外层，集中读取受认证的 `/api/upscale/capability`；右上角 `GlobalUpscaleEngineStatus` 和 `UpscalePage` 共用能力、错误与刷新入口，不再由超分页面创建标题栏 portal。核心连接就绪及重连时检查，页面切换不重复检查；旧请求结果不能覆盖较新的检查，断线时不保留就绪显示。
+- 引擎状态查询和任务执行分离：常驻状态入口不启动推理，不后台轮询超分任务。任务列表仍只在超分页面挂载期间轮询；原生文件授权及自动素材检查继续由页面与 `UpscaleProbeLoader` 管理。
+- 独立持久化超分队列、受控子进程和输出校验位于 `apps/server/src/upscale/`，路由适配位于 `routes/upscale.ts`，共享文件名/任务契约位于 `packages/shared/src/upscale.ts`。首帧封面使用受认证接口；删除记录不删除源文件或成片。输入支持与发行边界以《视频超分测试指南.md》和《视频超分验证记录.md》为准。

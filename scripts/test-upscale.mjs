@@ -102,7 +102,7 @@ try {
   // Real containers exercise ffprobe and the admission path, not a mocked metadata object.
   if (selectedCases.has('unsupported')) for (const [kind, args, expected] of [
     ['HDR', ['-i', silent, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc'], /HDR|色彩/],
-    ['VFR', ['-i', silent, '-vf', 'select=not(eq(n\\,12))', '-fps_mode', 'vfr', '-c:v', 'libx264', '-pix_fmt', 'yuv420p'], /恒定帧率|VFR|时间线/],
+    ['VFR', ['-i', silent, '-vf', 'select=not(eq(n\\,12))', '-fps_mode', 'vfr', '-c:v', 'libx264', '-pix_fmt', 'yuv420p'], /恒定帧率|可变帧率|VFR|时间线/],
     ['rotation', ['-display_rotation:v:0', '90', '-i', silent, '-c', 'copy'], /显示矩阵|旋转|元数据/],
     ['multitrack', ['-i', silent, '-map', '0:v:0', '-map', '0:v:0', '-c', 'copy'], /多轨|单视频轨/],
   ]) {

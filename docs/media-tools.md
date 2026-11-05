@@ -159,11 +159,8 @@ pnpm build:desktop:release
 Do not commit large binaries to the application repository. The release
 workflow injects them into `resources/media-tools` before `tauri build`.
 
-## Remaining release work
+## Video upscale resources (2026-11-04)
 
-- Run the [desktop CI workflow](./desktop-ci.md) on all supported runners and
-  confirm the uploaded installers. It compiles FFmpeg/LAME from fixed source
-  archives and records per-target checksums, versions, build flags and notices.
-- Test service lifecycle, resource lookup, and core log rotation on each OS.
-- Add About/diagnostic output for tool version, path, architecture, and license.
-- Run a real installed-package download test for each target.
+Upscale development tools are supplied explicitly through `MEDIAGRAB_UPSCALE_DIR`; they never fall back to another project directory. Release resources use the existing `resources/media-tools/<target>/upscale/` layout, and `pnpm build:server` includes `dist/upscale/supervise.mjs` for reaping child tools if the core dies.
+
+The current checkout has development resources only and has not passed redistribution review. This page remains the canonical description of general media-tool packaging; the video-upscale regression, review and pre-build gates are centralized in the [video-upscale test and pre-build guide](./视频超分测试指南.md), with evidence in the [validation record](./视频超分验证记录.md).

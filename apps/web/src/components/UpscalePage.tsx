@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { AlertTriangle, Check, LoaderCircle, Monitor, Play, RotateCw } from 'lucide-react'
-import { upscaleFileNameSchema, type UpscaleCapability, type UpscaleMedia, type UpscaleTask } from '@mediagrab/shared'
+import { upscaleFileNameSchema, type UpscaleMedia, type UpscaleTask } from '@mediagrab/shared'
 import { request } from '../api'
 import { chooseUpscalePath, isDesktop, openDownloadFile, type UpscaleSelection } from '../native'
 import { UpscalePathPicker } from './UpscalePathPicker'
 import { UpscaleTaskCard } from './UpscaleTaskCard'
 import { UpscaleTaskFilter, type UpscaleTaskFilterValue } from './UpscaleTaskFilter'
-import { UpscaleEngineStatus } from './UpscaleEngineStatus'
+import { useUpscaleEngine } from './UpscaleEngineProvider'
 import { UpscaleProbeLoader, type UpscalePreview } from '../lib/upscale-probe'
 import './upscale.css'
 
@@ -15,9 +14,8 @@ function describe(media: UpscaleMedia): string {
   const [n, d = '1'] = media.fps.split('/')
   return `${media.width}×${media.height} → ${media.width * 2}×${media.height * 2} · ${(Number(n) / Number(d)).toFixed(3)} fps · ${media.duration.toFixed(2)} 秒 · ${media.frames} 帧 · ${media.audio ? 'AAC 原样复制' : '无音轨'}`
 }
-export function UpscalePage({ engineSlot }: { engineSlot?: HTMLElement | null } = {}) {
-  const [cap, setCap] = useState<UpscaleCapability | null>(null)
-  const [engineError, setEngineError] = useState('')
+export function UpscalePage() {
+  const { capability: cap, error: engineError, retry: retryEngine } = useUpscaleEngine()
   const [tasks, setTasks] = useState<UpscaleTask[]>([])
   const [taskFilter, setTaskFilter] = useState<UpscaleTaskFilterValue>('all')
   const [input, setInput] = useState<UpscaleSelection | null>(null)
@@ -34,16 +32,14 @@ export function UpscalePage({ engineSlot }: { engineSlot?: HTMLElement | null } 
   const starting = useRef(false)
   const formBusy = picking || probing || submitting
   const [error, setError] = useState('')
-  const [refresh, setRefresh] = useState(0)
   const removedIds = useRef(new Set<string>())
   const parsedName = upscaleFileNameSchema.safeParse(name)
   const nameError = name !== '' && !parsedName.success ? parsedName.error.issues[0]?.message : undefined
   const visibleTasks = tasks.filter((task) => taskFilter === 'all' || task.status === taskFilter)
   useEffect(() => {
-    if (!isDesktop()) { setEngineError('本地超分仅供已验证的 macOS Apple Silicon 桌面会话使用。'); return }
+    if (!isDesktop()) return
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
-    void request<UpscaleCapability>('/api/upscale/capability').then((c) => { if (!stopped) setCap(c) }).catch((e: Error) => { if (!stopped) setEngineError(e.message) })
     const poll = async () => {
       try {
         const result = await request<{ tasks: UpscaleTask[] }>('/api/upscale/tasks')
@@ -53,7 +49,7 @@ export function UpscalePage({ engineSlot }: { engineSlot?: HTMLElement | null } 
     }
     void poll()
     return () => { stopped = true; clearTimeout(timer) }
-  }, [refresh])
+  }, [])
   useEffect(() => {
     let current = true
     setPreview(null); setProbeError('')
@@ -104,15 +100,14 @@ export function UpscalePage({ engineSlot }: { engineSlot?: HTMLElement | null } 
       probeLoader.invalidate()
       const task = await request<UpscaleTask>('/api/upscale/tasks', { method: 'POST', body: JSON.stringify({ grant: checked.grant, fileName: parsed.data }) })
       setTasks((old) => [task, ...old.filter((t) => t.id !== task.id)])
+      setInput(null); setDirectory(null); setName(''); setPreview(null); setProbeError('')
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       if (creating) setError(message)
       else { setPreview(null); setProbeError(message) }
     } finally { starting.current = false; setProbing(false); setSubmitting(false) }
   }
-  const retryEngine = () => { setCap(null); setEngineError(''); setError(''); setRefresh((v) => v + 1) }
   return <section className="upscale-page" aria-label="视频超分">
-    {engineSlot && createPortal(<UpscaleEngineStatus capability={cap} error={engineError} onRetry={retryEngine} />, engineSlot)}
     <div className="upscale-content">
       <section className="panel upscale-form" aria-labelledby="upscale-create-title">
         <div className="panel-heading upscale-panel-heading"><h2 id="upscale-create-title"><span className="heading-main">一键超分</span></h2></div>

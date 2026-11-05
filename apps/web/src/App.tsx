@@ -1,4 +1,5 @@
 import { UpscalePage } from './components/UpscalePage'
+import { GlobalUpscaleEngineStatus, UpscaleEngineProvider } from './components/UpscaleEngineProvider'
 import { DownloadServiceStatus } from './components/DownloadServiceStatus'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
@@ -120,7 +121,6 @@ function App() {
   const [historyFilterOpen, setHistoryFilterOpen] = useState(false)
   const historyFilterRef = useRef<HTMLDivElement>(null)
   const [activeView, setActiveView] = useState<WorkspaceView>('new')
-  const [upscaleEngineSlot, setUpscaleEngineSlot] = useState<HTMLDivElement | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const inputElementRef = useRef<HTMLInputElement>(null)
@@ -727,7 +727,7 @@ function App() {
   }
 
   return (
-    <div className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <UpscaleEngineProvider connection={coreConnection}><div className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-window-drag-region" data-tauri-drag-region onPointerDown={handleWindowDragPointerDown} aria-hidden="true" />
         <div className="brand-lockup">
@@ -787,11 +787,11 @@ function App() {
               {themeIcon}
             </button>
             <DownloadServiceStatus connection={coreConnection} extractor={extractor} retryCount={coreRetryCount} />
-            {activeView === 'upscale' && <div className="topbar-engine-slot" ref={setUpscaleEngineSlot} />}
+            <GlobalUpscaleEngineStatus />
           </div>
         </header>
 
-        {activeView === 'upscale' && <UpscalePage engineSlot={upscaleEngineSlot} />}
+        {activeView === 'upscale' && <UpscalePage />}
 
         {activeView === 'new' && <section className="hero-panel">
           <div className="hero-heading">
@@ -928,7 +928,7 @@ function App() {
         onSaveCookie={(platform) => void saveCookieAccount(platform)}
         onClearCookie={(platform) => void clearCookieAccount(platform)}
       />
-    </div>
+    </div></UpscaleEngineProvider>
   )
 }
 

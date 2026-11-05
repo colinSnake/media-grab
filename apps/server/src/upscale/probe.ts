@@ -31,9 +31,20 @@ export function supportedMedia(probe: Probe): UpscaleMedia {
   if (v.sample_aspect_ratio && !['1:1', 'N/A'].includes(v.sample_aspect_ratio)) throw new Error('仅支持方形像素')
   const width = v.width ?? 0, height = v.height ?? 0
   if (width < 64 || height < 64 || width > 1920 || height > 1080 || width % 2 || height % 2 || width * height > limits.maxPixels) throw new Error('尺寸须为偶数，64×64 至 1920×1080')
-  const fps = v.r_frame_rate ?? '0/0', frames = Number(v.nb_read_frames ?? v.nb_frames), duration = Number(probe.format.duration)
+  const fps = v.r_frame_rate ?? '0/0', duration = Number(probe.format.duration)
+  const nominalFps = rate(fps), streamDuration = Number(v.duration)
+  const declaredFrames = Number(v.nb_read_frames ?? v.nb_frames)
+  // Some MP4 files omit nb_frames. Derive only a candidate from the stream
+  // duration; timeline() later verifies the exact decoded count and every PTS.
+  const inferredFrames = Math.round(streamDuration * nominalFps)
+  const frames = Number.isInteger(declaredFrames) && declaredFrames > 0
+    ? declaredFrames
+    : Number.isFinite(streamDuration) && Number.isFinite(nominalFps) && nominalFps > 0
+      && Math.abs(streamDuration - inferredFrames / nominalFps) <= 0.03
+      ? inferredFrames
+      : Number.NaN
   if (!Number.isInteger(frames) || frames < 1 || frames > limits.maxFrames || !Number.isFinite(duration) || duration <= 0 || duration > limits.maxSeconds) throw new Error('无法确认帧数/时长或超过安全上限（10 分钟 / 36000 帧）')
-  const nominalFps = rate(fps), averageFps = rate(v.avg_frame_rate ?? '0/0')
+  const averageFps = rate(v.avg_frame_rate ?? '0/0')
   if (!Number.isFinite(nominalFps) || nominalFps < 1 || nominalFps > 60 || !Number.isFinite(averageFps) || averageFps <= 0) throw new Error('仅支持 1–60 fps 恒定帧率视频')
   // MP4 tick rounding can make avg_frame_rate slightly different from the actual
   // frame grid (e.g. 738 frames / 24.5999375 s = 30.000076 fps). Bound the
@@ -52,9 +63,11 @@ export async function inspect(file: string, tools: Tools, processes: Processes, 
   if (output) for (const stream of bounded.streams) if (stream.codec_type === 'video') {
     stream.width = (stream.width ?? 0) / 2; stream.height = (stream.height ?? 0) / 2
   }
-  // Reject oversized/unknown/unsupported sources before the expensive full decode count.
+  // Reject oversized/unknown/unsupported sources before full timestamp decoding.
   supportedMedia(bounded)
-  return JSON.parse(await processes.run(tools.ffprobe, ['-count_frames', ...args])) as Probe
+  // timeline() performs the necessary full decode while checking every frame's
+  // timestamp, so a separate -count_frames pass would decode the clip twice.
+  return preliminary
 }
 export async function timeline(file: string, media: UpscaleMedia, tools: Tools, processes: Processes, requireDts = false): Promise<void> {
   const data = JSON.parse(await processes.run(tools.ffprobe, ['-v', 'error', ...localInput, '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time,pkt_dts_time', '-of', 'json', file])) as { frames: Array<{ best_effort_timestamp_time?: string; pkt_dts_time?: string }> }

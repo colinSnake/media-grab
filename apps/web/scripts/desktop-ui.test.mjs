@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-let vite, UpscaleTaskCard, UpscalePage, UpscaleEngineStatus, DownloadServiceStatus, UpscaleProbeLoader, installDesktopContextMenuGuard
+let vite, UpscaleEngineProvider, GlobalUpscaleEngineStatus, UpscaleTaskCard, UpscalePage, UpscaleEngineStatus, DownloadServiceStatus, UpscaleProbeLoader, installDesktopContextMenuGuard
 before(async () => {
   // Load actual TS/TSX with the project's existing Vite; no browser, ports, or user tasks.
   vite = await createServer({ root: fileURLToPath(new URL('../', import.meta.url)), configFile: false, appType: 'custom', logLevel: 'error', optimizeDeps: { noDiscovery: true, include: [] }, esbuild: { jsx: 'automatic' }, server: { middlewareMode: true, hmr: false, watch: null } })
+  ;({ UpscaleEngineProvider, GlobalUpscaleEngineStatus } = await vite.ssrLoadModule('/src/components/UpscaleEngineProvider.tsx'))
   ;({ UpscalePage } = await vite.ssrLoadModule('/src/components/UpscalePage.tsx'))
   ;({ UpscaleEngineStatus } = await vite.ssrLoadModule('/src/components/UpscaleEngineStatus.tsx'))
   ;({ DownloadServiceStatus } = await vite.ssrLoadModule('/src/components/DownloadServiceStatus.tsx'))
@@ -71,7 +73,7 @@ const selection = { input: { path: '/fixture/video.mp4', proof: 'input-proof' },
 const checked = (grant) => ({ grant, media: fixture.media })
 
 test('upscale form keeps only the initiate CTA, without a shared loading spinner', () => {
-  const html = renderToStaticMarkup(createElement(UpscalePage))
+  const html = renderToStaticMarkup(createElement(UpscaleEngineProvider, null, createElement(UpscalePage)))
   const actions = html.match(/<div class="upscale-actions">(.*?)<\/div>/s)?.[1]
   assert.ok(actions)
   assert.equal([...actions.matchAll(/<button\b/g)].length, 1)
@@ -205,11 +207,35 @@ test('compact upscale cards use a first-frame cover, one-line title and source s
   assert.match(html, /upscale-media-heading.*分辨率.*upscale-scale-tag.*2×.*upscale-details-block.*媒体参数.*upscale-media-tags/s)
 })
 test('upscale headings and filter reuse history task-list typography and controls', () => {
-  const html = renderToStaticMarkup(createElement(UpscalePage))
+  const html = renderToStaticMarkup(createElement(UpscaleEngineProvider, null, createElement(UpscalePage)))
   assert.match(html, /panel-heading upscale-panel-heading/)
   assert.match(html, /panel-heading upscale-jobs-heading/)
   assert.match(html, /heading-main">一键超分/)
   assert.match(html, /class="heading-count"/)
   assert.match(html, /class="platform-filter-trigger"/)
   assert.match(html, /aria-label="超分任务筛选：全部任务"/)
+})
+
+
+test('global engine indicator renders without mounting the upscale page', () => {
+  const html = renderToStaticMarkup(createElement(UpscaleEngineProvider, null, createElement(GlobalUpscaleEngineStatus)))
+  assert.match(html, /upscale-engine-trigger/)
+  assert.doesNotMatch(html, /upscale-page|upscale-job-list/)
+})
+
+
+test('app mounts the shared engine status unconditionally after the download indicator', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /<UpscaleEngineProvider connection=\{coreConnection\}>/)
+  assert.match(app, /<DownloadServiceStatus[^>]*\/>\s*<GlobalUpscaleEngineStatus \/>/)
+  assert.match(app, /activeView === 'upscale' && <UpscalePage \/>/)
+  assert.doesNotMatch(app, /engineSlot|upscaleEngineSlot/)
+})
+
+
+test('global engine status reports core disconnection without stale readiness', () => {
+  const html = renderToStaticMarkup(createElement(UpscaleEngineProvider, { connection: 'disconnected' }, createElement(GlobalUpscaleEngineStatus)))
+  assert.match(html, /upscale-engine-trigger unavailable/)
+  assert.match(html, /超分引擎：引擎不可用/)
+  assert.doesNotMatch(html, /upscale-engine-trigger ready/)
 })

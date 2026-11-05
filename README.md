@@ -64,6 +64,22 @@ Cookies are encrypted locally using AES-256-GCM. Pasting displays the full encry
 
 In App Settings, the download directory, yt-dlp path, and default output each save automatically when their field loses focus. The per-platform **Save / Clear** buttons manage only that platform's Cookie.
 
+## Local anime video upscaling (first implementation: macOS Apple Silicon)
+
+**Media tools → Video upscale** is an independent page and task queue inside MediaGrab, not another app. It provides native MP4/output-directory selection, automatic preflight inspection, real `realesr-animevideov3-x2` inference, frame progress, cancellation, validated outputs and an open-result action. Download task semantics remain unchanged. Inputs are checked automatically after selecting the source and save directory; submit with **Start upscale**. Successful submission clears the form while keeping the task in the queue.
+
+The top-right chip icon is always visible across New task, Download queue, History, and Video upscale. Open it for engine/model status and use the refresh icon to recheck. Views share the same status; disconnection clears stale readiness and reconnection rechecks automatically. Showing the status does not start inference.
+
+Task cards show the source first frame, output/source filenames, resolution and media parameters, with status filtering. Paths can be copied. Deleting a record never deletes its source or output; cancel a running task before deleting its record.
+
+Supported inputs: local SDR CFR 1–60 fps, 8-bit H.264 / 4:2:0 MP4, even dimensions from 64×64 through 1920×1080, up to 10 minutes / 36,000 frames; no audio or one mono/stereo AAC track. AAC compressed data is copied and hash-checked. HDR, VFR, rotation, interlacing, non-square pixels, subtitles, chapters, additional tracks and unknown duration are rejected. SDR is normalized through RGB inference to BT.709; custom ICC/descriptive metadata is not retained. Sources and existing outputs are never overwritten.
+
+**Source and real-engine tests are available; a redistribution-ready dependency bundle is not yet complete. Do not assume an existing installer includes this feature.** No tools/models are downloaded at startup or committed. Missing dependencies and unsupported platforms report an explicit capability failure. Development can explicitly stage existing dependencies with `UPSCALER_SOURCE_DIR`, `UPSCALER_FFMPEG`, `UPSCALER_FFPROBE` and `pnpm prepare:upscale-tools --development`, then set `MEDIAGRAB_UPSCALE_DIR` to the reported directory. The regular desktop development entry shares an ephemeral authenticated session; browser-only mode cannot process arbitrary local files.
+
+See [implementation/validation evidence](docs/视频超分验证记录.md) for measured resource use and pending packaging/manual acceptance. The [test and pre-build checklist](docs/视频超分测试指南.md) contains repeatable regression commands and the release gates. `pnpm test:upscale:real` is an opt-in real-model regression after `pnpm build`; it uses isolated data and does not launch the desktop app.
+
+For a manual development build, follow the [desktop test guide](docs/视频超分测试指南.md): run `pnpm verify:upscale-dev` for a read-only preflight, then manually run `pnpm dev:desktop:upscale`. The entry refuses occupied ports and uses an isolated test database. An isolated macOS short-video workflow and user-confirmed cancel/open-output interactions have been validated. Full 10-minute load, complete navigation/download interaction, and an offline signed upscale installer still require acceptance.
+
 ## Build for desktop
 
 Build on the operating system you want to target. Run the matching commands from the repository root; Tauri packaging and native system libraries make native builds the recommended path.
@@ -113,6 +129,8 @@ MediaGrab is under active development. The v0.1.0 desktop pre-release is availab
 - [Roadmap](./docs/ROADMAP.md)
 - [Risk and responsible use](./docs/RISK-CONTROL.md)
 - [Project structure and development conventions](./docs/project-structure-and-conventions.md)
+- [Video upscale usage and test checklist (Chinese)](./docs/视频超分测试指南.md)
+- [Video upscale implementation and validation (Chinese)](./docs/视频超分验证记录.md)
 
 ## Responsible use
 
@@ -123,15 +141,3 @@ Use MediaGrab only for content you have the right to access, download, and retai
 MediaGrab is licensed under the [MIT License](./LICENSE).
 
 Third-party dependencies and bundled tools, including FFmpeg, LAME, and yt-dlp, retain their respective licenses. See the license notices included with those components.
-
-### Local anime video upscaling (first implementation: macOS Apple Silicon)
-
-**Media tools → Video upscale** is an independent page and task queue inside MediaGrab, not another app. It provides native MP4/output-directory selection, preflight inspection, real `realesr-animevideov3-x2` inference, frame progress, cancellation, validated outputs and an open-result action. Download task semantics remain unchanged.
-
-Supported inputs: local SDR CFR 1–60 fps, 8-bit H.264 / 4:2:0 MP4, even dimensions from 64×64 through 1920×1080, up to 10 minutes / 36,000 frames; no audio or one mono/stereo AAC track. AAC compressed data is copied and hash-checked. HDR, VFR, rotation, interlacing, non-square pixels, subtitles, chapters, additional tracks and unknown duration are rejected. SDR is normalized through RGB inference to BT.709; custom ICC/descriptive metadata is not retained. Sources and existing outputs are never overwritten.
-
-**Source and real-engine tests are available; a redistribution-ready dependency bundle is not yet complete. Do not assume an existing installer includes this feature.** No tools/models are downloaded at startup or committed. Missing dependencies and unsupported platforms report an explicit capability failure. Development can explicitly stage existing dependencies with `UPSCALER_SOURCE_DIR`, `UPSCALER_FFMPEG`, `UPSCALER_FFPROBE` and `pnpm prepare:upscale-tools --development`, then set `MEDIAGRAB_UPSCALE_DIR` to the reported directory. The regular desktop development entry shares an ephemeral authenticated session; browser-only mode cannot process arbitrary local files.
-
-See [implementation/validation evidence](docs/视频超分验证记录.md) for measured resource use and pending packaging/manual acceptance. `pnpm test:upscale:real` is an opt-in real-model regression after `pnpm build`; it uses isolated data and does not launch the desktop app.
-
-For a manual development build, follow the [desktop test guide](docs/视频超分测试指南.md): run `pnpm verify:upscale-dev` for a read-only preflight, then manually run `pnpm dev:desktop:upscale`. The entry refuses occupied ports and uses an isolated test database. GUI acceptance has not yet been performed.

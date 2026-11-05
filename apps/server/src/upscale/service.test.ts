@@ -13,7 +13,7 @@ vi.mock('./pipeline.js', async (original) => ({ ...await original<typeof import(
   control.peak = Math.max(control.peak, ++control.inFlight)
   try {
     update('upscaling', 0)
-    if (control.mode === 'wait') await new Promise<void>((_resolve, reject) => { processes.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }); if (processes.signal.aborted) reject(new Error('cancelled')) })
+    if (control.mode === 'wait') await new Promise<void>((_resolve, reject) => { processes.signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true }); if (processes.signal.aborted) reject(new DOMException('This operation was aborted', 'AbortError')) })
     if (control.mode === 'fail') throw new Error('controlled engine failure')
     const file = path.join(work, 'candidate.mp4'); await writeFile(file, 'unit fixture, not real upscale')
     update('validating', 26)
@@ -72,7 +72,8 @@ describe('isolated upscale task lifecycle (mocked inference, not quality evidenc
     const g = await grant(); const a = await service.create({ grant: g.grant, fileName: 'a.mp4' })
     const h = await grant(); const b = await service.create({ grant: h.grant, fileName: 'b.mp4' })
     expect(b.status).toBe('queued'); expect(service.cancel(b.id).status).toBe('cancelled'); service.cancel(a.id)
-    expect((await terminal(a.id)).status).toBe('cancelled'); expect(control.peak).toBeLessThanOrEqual(1)
+    const cancelled = await terminal(a.id)
+    expect(cancelled.status).toBe('cancelled'); expect(cancelled.error).toEqual({ code: 'CANCELLED', message: '任务已取消' }); expect(control.peak).toBeLessThanOrEqual(1)
     await expect(stat(a.output)).rejects.toThrow(); await expect(stat(b.output)).rejects.toThrow()
   })
   it('keeps a preexisting file created at the atomic commit race', async () => {

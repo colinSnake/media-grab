@@ -249,7 +249,6 @@ svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.8; }
 .topbar { min-width: 0; display: flex; align-items: center; justify-content: flex-end; margin: 0 -15px; padding: 0 14px 0 15px; border-bottom: 1px solid var(--line-soft); background: var(--panel); cursor: grab; user-select: none; }
 .topbar:active { cursor: grabbing; }
 .topbar-actions { min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 5px; }
-.topbar-engine-slot { display: flex; align-items: center; flex-shrink: 0; }
 .topbar-actions > .icon-button { flex-shrink: 0; }
 .task-icon-anchor { min-width: 0; display: inline-flex; flex: 0 0 auto; align-items: center; }
 .task-icon-tooltip { position: fixed; z-index: 120; width: max-content; max-width: min(320px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--tooltip-bg); box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 28%, transparent); color: var(--tooltip-text); font-size: 11px; font-weight: 500; line-height: 1.4; white-space: pre-line; overflow-wrap: anywhere; }

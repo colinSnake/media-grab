@@ -20,7 +20,7 @@ describe('upscale input boundaries', () => {
   it('accepts CFR SDR and preserves the rational rate', () => { expect(supportedMedia(probe()).frames).toBe(26) })
   it.each([
     ['HDR', { color_transfer: 'smpte2084' }], ['10 bit', { pix_fmt: 'yuv420p10le' }],
-    ['oversized', { width: 3840 }], ['odd size', { width: 127 }], ['unknown frames', { nb_read_frames: 'N/A' }],
+    ['oversized', { width: 3840 }], ['odd size', { width: 127 }], ['unknown frames and stream duration', { nb_read_frames: 'N/A', duration: 'N/A' }],
     ['too many frames', { nb_read_frames: '36001' }], ['VFR', { avg_frame_rate: '23/1' }],
     ['rotation', { side_data_list: [{ rotation: 90 }] }], ['non-square pixel', { sample_aspect_ratio: '2:1' }],
     ['nonzero start', { start_time: '1' }], ['unknown start', { start_time: 'N/A' }], ['unknown stream duration', { duration: 'N/A' }], ['unknown fps', { avg_frame_rate: '0/0' }],
@@ -29,6 +29,15 @@ describe('upscale input boundaries', () => {
   })
   it('rejects unknown duration and long videos', () => {
     const p = probe(); p.format.duration = 'N/A'; expect(() => supportedMedia(p)).toThrow(); p.format.duration = '601'; expect(() => supportedMedia(p)).toThrow()
+  })
+  it('accepts exactly 10 minutes and 36,000 frames but rejects the next frame', () => {
+    const p = probe()
+    Object.assign(p.streams[0]!, { width: 1920, height: 1080, r_frame_rate: '60/1', avg_frame_rate: '60/1', nb_read_frames: '36000', duration: '600' })
+    p.format.duration = '600'
+    expect(supportedMedia(p)).toMatchObject({ width: 1920, height: 1080, fps: '60/1', frames: 36000, duration: 600 })
+    Object.assign(p.streams[0]!, { nb_read_frames: '36001', duration: '600.016667' })
+    p.format.duration = '600.016667'
+    expect(() => supportedMedia(p)).toThrow('超过安全上限')
   })
   it('rejects additional tracks, subtitles, chapters and incompatible audio', () => {
     for (const stream of [{ codec_type: 'subtitle' }, { codec_type: 'audio', codec_name: 'opus' }, { codec_type: 'audio', codec_name: 'aac', channels: 6 }]) {
@@ -118,7 +127,9 @@ it('rejects insufficient/unknown free disk before generating frames', () => {
   const media = supportedMedia(probe())
   expect(() => ensureSpace(512 * 1024 ** 2, media, 100)).toThrow('空间不足')
   expect(() => ensureSpace(NaN, media, 100)).toThrow('空间不足')
-  expect(() => ensureSpace(requiredSpace(media, 100), media, 100)).not.toThrow()
+  const required = requiredSpace(media, 100)
+  expect(() => ensureSpace(required, media, 100)).not.toThrow()
+  expect(() => ensureSpace(required - 1, media, 100)).toThrow('空间不足')
 })
 it('checks actual PTS for hidden VFR and requires monotonic output DTS', async () => {
   const media = supportedMedia(probe())
@@ -217,6 +228,12 @@ describe('CFR frame-rate metadata rounding', () => {
     frames[369]!.best_effort_timestamp_time = String(369 / 30 + 0.004)
     await expect(timeline('fixture', media, { ffprobe: 'fixture' } as Tools, fixtureProcesses)).rejects.toThrow('VFR')
   })
+  it('infers a candidate frame count when MP4 metadata omits both frame-count fields', () => {
+    const fixture = roundedThirtyFpsProbe()
+    delete (fixture.streams[0]! as { nb_frames?: string }).nb_frames
+    delete (fixture.streams[0]! as { nb_read_frames?: string }).nb_read_frames
+    expect(supportedMedia(fixture)).toMatchObject({ frames: 738, fps: '30/1' })
+  })
   it.each(['24/1', '24000/1001', '30000/1001', '30/1', '60/1'])('normalizes bounded average-rate rounding at %s, including the 60 fps boundary', (fps) => {
     const [n, d] = fps.split('/').map(Number)
     for (const tickOffset of [-1, 1]) {
@@ -227,14 +244,14 @@ describe('CFR frame-rate metadata rounding', () => {
       expect(supportedMedia(fixture)).toMatchObject({ fps, frames, duration: frames / (n! / d!) })
     }
   })
-  it('allows the same rounded metadata through both preliminary and decoded-count inspection', async () => {
+  it('uses one metadata probe and leaves exact frame-count verification to the timestamp scan', async () => {
     const preliminary = roundedThirtyFpsProbe()
     delete (preliminary.streams[0]! as { nb_read_frames?: string }).nb_read_frames
     const calls: string[][] = []
-    const fixtureProcesses = { run: async (_tool: string, args: string[]) => { calls.push(args); return JSON.stringify(args.includes('-count_frames') ? roundedThirtyFpsProbe() : preliminary) } } as unknown as Processes
+    const fixtureProcesses = { run: async (_tool: string, args: string[]) => { calls.push(args); return JSON.stringify(preliminary) } } as unknown as Processes
     const inspected = await inspect('fixture', { ffprobe: 'fixture' } as Tools, fixtureProcesses)
-    expect(calls).toHaveLength(2)
-    expect(calls[1]).toContain('-count_frames')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).not.toContain('-count_frames')
     expect(supportedMedia(inspected).fps).toBe('30/1')
   })
   it('bounds cumulative drift even when the raw fps difference is tiny', () => {

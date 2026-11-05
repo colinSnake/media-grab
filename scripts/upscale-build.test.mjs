@@ -53,13 +53,21 @@ async function stagingFixture(run) {
     const marker = path.join(root, 'executed')
     await writeFile(binary, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 })
     const review = path.join(root, 'review.json'), license = path.join(root, 'license')
-    await writeFile(review, JSON.stringify({ redistributionReviewed: true, engineSource: 'fixture', modelSource: 'fixture', ffmpegSource: 'fixture', ffprobeSource: 'fixture', files: { ffmpeg: '0'.repeat(64) } }))
+    await writeFile(review, JSON.stringify({
+      schemaVersion: 1, redistributionReviewed: true, target: 'darwin-arm64', decision: 'approved',
+      reviewedBy: 'fixture reviewer', reviewedAt: '2026-11-04', evidence: ['fixture review record'],
+      engineSource: 'fixture', modelSource: 'fixture', ffmpegSource: 'fixture', ffprobeSource: 'fixture',
+      files: {
+        ffmpeg: '0'.repeat(64), ffprobe: '0'.repeat(64), 'realesrgan-ncnn-vulkan': '0'.repeat(64),
+        'models/realesr-animevideov3-x2.bin': '0'.repeat(64), 'models/realesr-animevideov3-x2.param': '0'.repeat(64),
+      },
+    }))
     const destination = path.join(root, 'apps/desktop/src-tauri/resources/media-tools/darwin-arm64/upscale')
     const invoke = (args = []) => spawnSync(process.execPath, [path.join(root, 'scripts/prepare-upscale-tools.mjs'), ...args], {
       encoding: 'utf8', timeout: 10000,
       env: { ...process.env, UPSCALER_SOURCE_DIR: source, UPSCALER_FFMPEG: binary, UPSCALER_FFPROBE: binary, UPSCALER_REVIEW_MANIFEST: review, UPSCALER_LICENSE_DIR: license, UPSCALER_DEVELOPMENT_DESTINATION: undefined, UPSCALER_SIGN_IDENTITY: undefined },
     })
-    await run({ root, destination, marker, invoke, writeFile, mkdir, path })
+    await run({ root, destination, marker, review, invoke, writeFile, mkdir, path })
   } finally { await rm(root, { recursive: true, force: true }) }
 }
 const nativeStaging = { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }
@@ -69,6 +77,19 @@ test('release staging rejects unreviewed hashes before executing binaries or cre
     const result = invoke()
     assert.equal(result.status, 1)
     assert.match(result.stderr, /Unreviewed input SHA-256: ffmpeg/)
+    assert.equal(existsSync(marker), false)
+    assert.equal(existsSync(destination), false)
+  })
+})
+test('release staging rejects incomplete review evidence before executing binaries', nativeStaging, async () => {
+  const { existsSync } = await import('node:fs'), { readFile } = await import('node:fs/promises')
+  await stagingFixture(async ({ destination, marker, review, invoke, writeFile }) => {
+    const value = JSON.parse(await readFile(review, 'utf8'))
+    delete value.reviewedBy
+    await writeFile(review, JSON.stringify(value))
+    const result = invoke()
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /Incomplete provenance \/ redistribution review manifest/)
     assert.equal(existsSync(marker), false)
     assert.equal(existsSync(destination), false)
   })

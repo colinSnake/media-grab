@@ -215,8 +215,9 @@ export class UpscaleService {
       await link(result.path, r.task.output) // same-volume atomic, never overwrites a file/symlink
       r.task.result = { ...result, path: r.task.output }; r.task.status = 'succeeded'; r.task.stage = 'done'; this.save(r)
     } catch (e) {
-      r.task.status = state.abort.signal.aborted ? 'cancelled' : 'failed'
-      r.task.error = { code: state.abort.signal.aborted ? 'CANCELLED' : 'UPSCALE_FAILED', message: e instanceof Error ? e.message : String(e) }; this.save(r)
+      const cancelled = state.abort.signal.aborted
+      r.task.status = cancelled ? 'cancelled' : 'failed'
+      r.task.error = { code: cancelled ? 'CANCELLED' : 'UPSCALE_FAILED', message: cancelled ? '任务已取消' : e instanceof Error ? e.message : String(e) }; this.save(r)
     } finally {
       state.abort.abort(); await processes.settle(); await this.cleanup(r)
     }
