@@ -25,9 +25,9 @@ Node/Fastify 统一负责 Web 与桌面版共用的解析、下载任务、平�
 
 抖音、小红书和 YouTube 的网页结构、短链跳转和媒体格式经常变化，不把第三方站点的逆向细节复制到 mediaGrab 核心。adapter 通过 `yt-dlp --dump-single-json --no-playlist --skip-download` 获取统一媒体描述，再转换为 `MediaParseResult`。yt-dlp 只负责解析和给出用户有权访问的媒体地址，下载任务、文件安全、FFmpeg 和权限提示仍由 mediaGrab 控制。
 
-设置页为抖音、小红书、YouTube 分别提供 Cookie 输入，接收 Cookie 请求头或 Netscape 文件；服务端只保留对应平台的域名记录（包括 Netscape `#HttpOnly_` 条目），规范化后写入本地加密保险箱。B站 Cookie 经过单独的账号验证与保管流程。`GET /api/accounts/:platform/cookie` 只返回 `configured`，保存和清除接口也不回传凭据。解析时 yt-dlp 从权限为 0600 的临时 Cookie 文件读取内容，调用结束后在 `finally` 中删除；各平台分别取自己的凭据。YouTube 支持在解析时附带 Cookie，不等于保证登录成功或解锁高码率，真实账号与下载仍待验收。
+设置页为抖音、小红书、YouTube 分别提供 Cookie 输入，接收 Cookie 请求头或 Netscape 文件；服务端只保留对应平台的域名记录（包括 Netscape `#HttpOnly_` 条目），规范化后写入本地加密保险箱。B站 Cookie 经过单独的账号验证与保管流程。`GET /api/accounts/:platform/cookie` 返回 `configured` 和完整 JWE 密文 `credentialPreview`，保存和清除接口也不回传 Cookie 原文或解密密钥。解析时 yt-dlp 从权限为 0600 的临时 Cookie 文件读取内容，调用结束后在 `finally` 中删除；各平台分别取自己的凭据。YouTube 支持在解析时附带 Cookie，不等于保证登录成功或解锁高码率，真实账号与下载仍待验收。
 
-前端保存成功后仅在当前会话内保留用户粘贴的 textarea 内容，不写入浏览器持久存储；重新启动不回显明文，但服务端保存的凭据仍可使用。B站验证明确返回未登录时清除该凭据；yt-dlp 对其他平台的一次失败无法可靠区分 Cookie 过期、内容受限与限流，不自动删除凭据。
+前端粘贴后仅显示完整草稿密文，保存成功后清除暂存原文；不写入浏览器持久存储。保存后和重新启动后显示服务端返回的完整密文，凭据原文仅供本机核心使用。设置弹窗打开、恢复焦点/可见以及保持打开时每 60 秒刷新账号状态，并核验当前 B站账号；失效状态清空旧密文，较旧的请求结果不得覆盖新保存的认证。B站验证明确返回未登录时清除该凭据；yt-dlp 对其他平台的一次失败无法可靠区分 Cookie 过期、内容受限与限流，不据此自动删除凭据；仅 Netscape Cookie 文件声明的认证 Cookie 到期时间全部过期时，才在读取状态或使用凭据时自动清除。普通 Cookie 请求头没有到期时间，不能据此判断过期。
 
 ## 2. 目标架构
 

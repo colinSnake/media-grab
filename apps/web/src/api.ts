@@ -49,12 +49,29 @@ export function clearCookie(platform: CookieAccountPlatform): Promise<CookieStat
   return request<CookieStatus>(`/api/accounts/${platform}/cookie`, { method: 'DELETE' })
 }
 
-function readErrorMessage(data: unknown): string | undefined {
-  if (typeof data === 'object' && data !== null && 'error' in data) {
-    const err = (data as { error?: { message?: unknown } }).error
-    if (typeof err?.message === 'string') return err.message
+export class RequestError extends Error {
+  readonly code?: string
+  readonly kind?: string
+
+  constructor(message: string, details?: { code?: string; kind?: string }) {
+    super(message)
+    this.name = 'RequestError'
+    this.code = details?.code
+    this.kind = details?.kind
   }
-  return undefined
+}
+
+export function isAccountAuthenticationError(error: unknown): boolean {
+  return error instanceof RequestError && (error.code === 'ACCOUNT_NOT_LOGGED_IN' || error.code === 'ACCOUNT_CREDENTIAL_MISSING')
+}
+
+function readRequestError(data: unknown, status: number): RequestError {
+  const error = typeof data === 'object' && data !== null && 'error' in data ? data.error : undefined
+  const details = typeof error === 'object' && error !== null ? error as Record<string, unknown> : {}
+  return new RequestError(typeof details.message === 'string' ? details.message : `请求失败（HTTP ${status}）`, {
+    code: typeof details.code === 'string' ? details.code : undefined,
+    kind: typeof details.kind === 'string' ? details.kind : undefined,
+  })
 }
 
 export function apiBase(): string {
@@ -132,7 +149,7 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(readErrorMessage(data) ?? `请求失败（HTTP ${response.status}）`)
+    throw readRequestError(data, response.status)
   }
   return data as T
 }

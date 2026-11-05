@@ -68,3 +68,24 @@ export function normalizeXiaohongshuCookie(raw: string): string {
 export function normalizeYouTubeCookie(raw: string): string {
   return normalizePlatformCookie('youtube', raw)
 }
+
+// Only a declared expiry can prove expiration. Cookie headers/session cookies
+// have no deadline, and extractor errors can also mean rate limits or restrictions.
+const AUTH_COOKIE_NAMES: Record<CookiePlatform, ReadonlySet<string>> = {
+  douyin: new Set(['sessionid', 'sessionid_ss', 'sid_tt']),
+  xiaohongshu: new Set(['web_session']),
+  youtube: new Set(['LOGIN_INFO', 'SID', '__Secure-1PSID', '__Secure-3PSID', 'SAPISID', '__Secure-1PAPISID', '__Secure-3PAPISID']),
+}
+
+export function platformCookieExpired(platform: CookiePlatform, cookie: string, now = Date.now()): boolean {
+  const entries = cookie.split(/\r?\n/)
+    .filter((line) => line && (!line.startsWith('#') || line.startsWith('#HttpOnly_')))
+    .map((line) => line.split('\t'))
+    .filter((fields) => fields.length >= 7 && isAllowedDomain(platform, (fields[0] ?? '').replace(/^#HttpOnly_/, '')))
+  const authentication = entries.filter((fields) => AUTH_COOKIE_NAMES[platform].has(fields[5] ?? ''))
+  const relevant = authentication.length ? authentication : entries
+  return relevant.length > 0 && relevant.every((fields) => {
+    const expiry = Number(fields[4])
+    return Number.isFinite(expiry) && expiry > 0 && expiry * 1_000 <= now
+  })
+}

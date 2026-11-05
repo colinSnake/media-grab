@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { credentialPreviewSchema, defaultAppConfig } from '@mediagrab/shared'
 import { AccountService } from './account-service.js'
 import { CredentialVault } from './credential-vault.js'
@@ -21,7 +21,7 @@ const NAV_LOGGED_OUT = {
 }
 
 function setup(response: unknown) {
-  const fake = new FakeFetch().route('/x/web-interface/nav', { json: response })
+  const fake = new FakeFetch().route('/x/web-interface/nav', () => ({ json: typeof response === 'function' ? response() : response }))
   const db = Database.open(':memory:')
   const http = new BiliHttp({
     fetchImpl: fake.fetchImpl,
@@ -99,6 +99,86 @@ describe('AccountService', () => {
     const { db, repo, service } = setup(NAV_LOGGED_IN)
     await expect(service.importBili('坏账号', 'foo=bar')).rejects.toMatchObject({ code: 'INVALID_ACCOUNT_COOKIE' })
     expect(repo.list()).toHaveLength(0)
+    db.close()
+  })
+})
+
+
+describe('expired account credentials', () => {
+  it.each([
+    ['douyin', '.douyin.com', 'sessionid'],
+    ['xiaohongshu', '.xiaohongshu.com', 'web_session'],
+    ['youtube', '.youtube.com', 'SID'],
+  ] as const)('clears %s saved ciphertext and vault entry once authentication expires', (platform, domain, name) => {
+    const { db, vault, service } = setup(NAV_LOGGED_IN)
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000)
+    try {
+      service.saveCookie(platform, `# Netscape HTTP Cookie File\n${domain}\tTRUE\t/\tTRUE\t2000000001\t${name}\tsecret\n${domain}\tTRUE\t/\tTRUE\t0\ttracking\tretained\n`)
+      expect(service.cookieStatus(platform).configured).toBe(true)
+      clock.mockReturnValue(2_000_000_001_000)
+      expect(service.cookieStatus(platform)).toEqual({ configured: false, credentialPreview: null })
+      expect(vault.get(`platform:${platform}`)).toBeNull()
+      expect(service.cookie(platform)).toBeUndefined()
+    } finally {
+      clock.mockRestore()
+      db.close()
+    }
+  })
+
+  it('rejects an expired replacement without discarding saved credentials', () => {
+    const { db, service } = setup(NAV_LOGGED_IN)
+    service.saveCookie('douyin', 'sessionid=still-valid')
+    const original = service.cookieStatus('douyin')
+    expect(() => service.saveCookie('douyin', '# Netscape HTTP Cookie File\n.douyin.com\tTRUE\t/\tTRUE\t1\tsessionid\texpired\n')).toThrow(expect.objectContaining({ code: 'COOKIE_EXPIRED' }))
+    expect(service.cookieStatus('douyin')).toEqual(original)
+    db.close()
+  })
+
+  it('clears expired Bilibili credentials and prevents their reappearance in account summaries', async () => {
+    let response = NAV_LOGGED_IN as unknown
+    const { db, vault, service } = setup(() => response)
+    const imported = await service.importBili('账号', 'SESSDATA=secret')
+    response = NAV_LOGGED_OUT
+    await expect(service.verify(imported.id)).rejects.toMatchObject({ code: 'ACCOUNT_NOT_LOGGED_IN' })
+    expect(vault.get(imported.id)).toBeNull()
+    expect(service.list()).toEqual([expect.objectContaining({ id: imported.id, status: 'needs-login', loggedIn: false, vip: false, credentialPreview: null })])
+    expect(service.cookieHeader()).toBeUndefined()
+    await expect(service.verify(imported.id)).rejects.toMatchObject({ code: 'ACCOUNT_CREDENTIAL_MISSING' })
+    db.close()
+  })
+
+  it('keeps credentials on transient network failure', async () => {
+    let fail = false
+    const { db, vault, service } = setup(() => {
+      if (fail) throw new Error('temporary network failure')
+      return NAV_LOGGED_IN
+    })
+    const imported = await service.importBili('账号', 'SESSDATA=secret')
+    fail = true
+    await expect(service.verify(imported.id)).rejects.toBeDefined()
+    expect(vault.get(imported.id)).toBe('SESSDATA=secret')
+    expect(service.list()[0]).toMatchObject({ status: 'active', credentialPreview: imported.credentialPreview })
+    db.close()
+  })
+
+  it('does not resurrect an account deleted during background verification', async () => {
+    let onResponse = () => {}
+    const { db, repo, service } = setup(() => { onResponse(); return NAV_LOGGED_IN })
+    const imported = await service.importBili('账号', 'SESSDATA=secret')
+    onResponse = () => service.remove(imported.id)
+    await expect(service.verify(imported.id)).rejects.toMatchObject({ code: 'ACCOUNT_CREDENTIAL_MISSING' })
+    expect(repo.get(imported.id)).toBeNull()
+    db.close()
+  })
+
+  it('preserves a newer account selection while an older account is being verified', async () => {
+    let onResponse = () => {}
+    const { db, repo, service } = setup(() => { onResponse(); return NAV_LOGGED_IN })
+    const first = await service.importBili('一', 'SESSDATA=first')
+    const second = await service.importBili('二', 'SESSDATA=second')
+    onResponse = () => repo.setActive('bilibili', first.id)
+    expect(await service.verify(second.id)).toMatchObject({ active: false })
+    expect(service.activeBili()?.id).toBe(first.id)
     db.close()
   })
 })

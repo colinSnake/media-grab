@@ -1,13 +1,13 @@
 import { Check, FolderOpen, LoaderCircle, UserRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { AccountPlatform, AccountSummary, AppConfigPatch, CookieAccountPlatform, CookieStatus, DownloadMode } from '@mediagrab/shared'
+import type { AccountPlatform, AccountSummary, AppConfigPatch, CookieAccountPlatform, DownloadMode } from '@mediagrab/shared'
 import { modeOptions } from '../lib/options'
 import { platformLabel } from '@mediagrab/shared'
 import { PlatformLogo } from './PlatformLogo'
 import { encryptCookieForDisplay } from '../lib/cookie-encryption'
+import { accountCredentialPreview, type CookieAccountState } from '../lib/account-state'
 
 type SettingsAccountPlatform = AccountPlatform | 'youtube'
-type CookieAccountState = CookieStatus & { cookie: string; saving: boolean; authFailed: boolean }
 type SettingField = 'savePath' | 'ytDlpPath' | 'defaultDownloadMode'
 
 function CookieInput({ platform, cookie, credentialPreview, disabled, onChange }: {
@@ -169,15 +169,15 @@ export function SettingsModal({
           </div>
           {activeAccountPlatform === 'bilibili' && <div className="platform-account-panel">
           <div className="account-section-heading"><div><h3><UserRound /> B站</h3><span className={`auth-status ${biliAuthFailed ? 'failed' : activeBiliAccount?.status === 'active' ? 'success' : ''}`}>{biliAuthFailed ? '（认证失败，认证信息不对，请重试）' : activeBiliAccount?.status === 'active' ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div>{activeBiliAccount && <button className="account-action" type="button" data-tooltip="验证B站 Cookie" aria-label="验证B站 Cookie" aria-busy={accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify'} onClick={() => onVerifyAccount(activeBiliAccount.id)} disabled={accountAction !== null || isSavingAccount}>{accountAction?.id === activeBiliAccount.id && accountAction.action === 'verify' ? <LoaderCircle className="spin" /> : <Check />}</button>}</div>
-          <CookieInput platform="B站" cookie={accountCookie} credentialPreview={activeBiliAccount?.credentialPreview} disabled={isSavingAccount || accountAction !== null} onChange={onAccountCookieChange} />
+          <CookieInput platform="B站" cookie={accountCookie} credentialPreview={accountCredentialPreview(activeBiliAccount)} disabled={isSavingAccount || accountAction !== null} onChange={onAccountCookieChange} />
           <div className="platform-cookie-actions"><button className="account-import-button" type="button" onClick={onSaveAccount} disabled={isSavingAccount || accountAction !== null || accountCookie.trim() === ''} aria-busy={isSavingAccount}>{isSavingAccount ? '正在保存' : '保存'}</button><button className="account-clear-button" type="button" onClick={onClearBiliCookie} disabled={isSavingAccount || accountAction !== null || (!activeBiliAccount && accountCookie === '')} aria-busy={isClearingBili}>{isClearingBili ? '正在清空' : '清空'}</button></div>
           </div>}
           {(activeAccountPlatform === 'douyin' || activeAccountPlatform === 'xiaohongshu' || activeAccountPlatform === 'youtube') && (() => {
             const platform = activeAccountPlatform
             const account = cookieAccounts[platform]
             return <div className="platform-account-panel">
-              <div className="account-section-heading"><div><h3><PlatformLogo platform={platform} /> {platformLabel[platform]}</h3><span className={`auth-status ${account.authFailed ? 'failed' : account.configured ? 'success' : ''}`}>{account.authFailed ? '（认证失败，认证信息不对，请重试）' : account.configured ? '（认证成功，信息已加密处理）' : '（未认证）'}</span></div></div>
-              <CookieInput key={platform} platform={platformLabel[platform]} cookie={account.cookie} credentialPreview={account.credentialPreview} disabled={account.saving || accountAction !== null} onChange={(value) => onCookieChange(platform, value)} />
+              <div className="account-section-heading"><div><h3><PlatformLogo platform={platform} /> {platformLabel[platform]}</h3><span className={`auth-status ${account.authFailed ? 'failed' : account.configured ? 'success' : ''}`}>{account.authFailed ? '（认证失败，认证信息不对，请重试）' : account.configured ? '（已保存，信息已加密处理）' : '（未认证）'}</span></div></div>
+              <CookieInput key={platform} platform={platformLabel[platform]} cookie={account.cookie} credentialPreview={account.configured ? account.credentialPreview : null} disabled={account.saving || accountAction !== null} onChange={(value) => onCookieChange(platform, value)} />
               <div className="platform-cookie-actions">
                 <button className="account-import-button" type="button" onClick={() => onSaveCookie(platform)} disabled={accountAction !== null || account.saving || account.cookie.trim() === ''} aria-busy={account.saving}>{account.saving ? '正在保存' : '保存'}</button>
                 <button className="account-clear-button" type="button" onClick={() => onClearCookie(platform)} disabled={accountAction !== null || account.saving || (!account.configured && account.cookie === '')} aria-busy={accountAction?.id === `cookie:${platform}` && accountAction.action === 'clear-cookie'}>{accountAction?.id === `cookie:${platform}` && accountAction.action === 'clear-cookie' ? '正在清空' : '清空'}</button>

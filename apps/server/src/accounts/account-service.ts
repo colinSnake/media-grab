@@ -6,7 +6,7 @@ import { silentLogger } from '../lib/logger.js'
 import type { BiliHttp } from '../bili/http.js'
 import { AccountRepository, type AccountRecord } from '../store/repositories.js'
 import { CredentialVault } from './credential-vault.js'
-import { normalizePlatformCookie, type CookiePlatform } from './douyin-cookie.js'
+import { normalizePlatformCookie, platformCookieExpired, type CookiePlatform } from './douyin-cookie.js'
 
 const BILI_NAV_URL = 'https://api.bilibili.com/x/web-interface/nav'
 const COOKIE_NAMES = ['SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid'] as const
@@ -57,7 +57,7 @@ export class AccountService {
   }
 
   list(): AccountSummary[] {
-    return this.#repo.list().map((account) => ({ ...summary(account), credentialPreview: this.#vault.preview(account.id) }))
+    return this.#repo.list().map((account) => ({ ...summary(account), credentialPreview: account.status === 'active' ? this.#vault.preview(account.id) : null }))
   }
 
   activeBili(): AccountRecord | null {
@@ -84,7 +84,7 @@ export class AccountService {
   }
 
   cookieConfigured(platform: CookiePlatform): boolean {
-    return this.#vault.get(cookieId(platform)) !== null
+    return this.cookie(platform) !== undefined
   }
 
   cookieStatus(platform: CookiePlatform): CookieStatus {
@@ -93,7 +93,11 @@ export class AccountService {
   }
 
   saveCookie(platform: CookiePlatform, rawCookie: string): void {
-    this.#vault.set(cookieId(platform), normalizePlatformCookie(platform, rawCookie))
+    const cookie = normalizePlatformCookie(platform, rawCookie)
+    if (platformCookieExpired(platform, cookie)) {
+      throw new ApiError('COOKIE_EXPIRED', 'Cookie 已过期，请重新登录平台并导入新的 Cookie', 'auth', 403)
+    }
+    this.#vault.set(cookieId(platform), cookie)
   }
 
   clearCookie(platform: CookiePlatform): void {
@@ -102,7 +106,12 @@ export class AccountService {
 
   cookie(platform: ExtractorPlatform): string | undefined {
     if (platform !== 'douyin' && platform !== 'xiaohongshu' && platform !== 'youtube') return undefined
-    return this.#vault.get(cookieId(platform)) ?? undefined
+    const cookie = this.#vault.get(cookieId(platform))
+    if (cookie && platformCookieExpired(platform, cookie)) {
+      this.clearCookie(platform)
+      return undefined
+    }
+    return cookie ?? undefined
   }
 
   douyinCookieConfigured(): boolean {
@@ -172,7 +181,10 @@ export class AccountService {
     const account = this.#repo.get(id)
     if (!account) throw new ApiError('ACCOUNT_NOT_FOUND', '账号不存在', 'notFound', 404)
     const cookie = this.#vault.get(id)
-    if (!cookie) throw new ApiError('ACCOUNT_CREDENTIAL_MISSING', '账号凭据不存在，请重新导入', 'auth', 403)
+    if (!cookie) {
+      this.#repo.save({ ...account, status: 'needs-login', loggedIn: false, vip: false, updatedAt: Date.now() })
+      throw new ApiError('ACCOUNT_CREDENTIAL_MISSING', '账号凭据不存在，请重新导入', 'auth', 403)
+    }
     const response = await this.#http.json(navSchema, BILI_NAV_URL, {
       class: 'api',
       referer: 'https://www.bilibili.com/',
@@ -180,16 +192,22 @@ export class AccountService {
       headers: { Cookie: [this.#deviceCookieProvider(), cookie].filter(Boolean).join('; ') },
       label: 'account:bili:verify',
     })
+    // The settings background check may overlap deletion or activation of another account.
+    // Never resurrect a removed account or restore its old active flag.
+    const current = this.#repo.get(id)
+    if (!current || this.#vault.get(id) !== cookie) {
+      throw new ApiError('ACCOUNT_CREDENTIAL_MISSING', '账号凭据已清除，请重新导入', 'auth', 403)
+    }
     const data = response.envelope.data
     const loggedIn = data.isLogin
     const vip = loggedIn && (data.vipStatus ?? 0) > 0
     const next: AccountRecord = {
-      ...account,
+      ...current,
       displayName: data.uname ?? '',
       status: loggedIn ? 'active' : 'needs-login',
       loggedIn,
       vip,
-      active: account.active,
+      active: current.active,
       lastVerifiedAt: Date.now(),
       updatedAt: Date.now(),
     }

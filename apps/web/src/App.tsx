@@ -43,7 +43,7 @@ import type {
   TaskSnapshot,
 } from '@mediagrab/shared'
 import { compareTaskCreation, detectPlatform, platformCatalog, platformLabel, taskDedupeKey } from '@mediagrab/shared'
-import { cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventConnection, getTasks, importBiliAccount, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, startTask, verifyAccount, type HealthResponse, type ExtractorStatus } from './api'
+import { cancelTask, clearCookie, createTask, getAccounts, getConfig, getCookieStatus, getExtractorStatus, getHealth, getTaskEventConnection, getTasks, importBiliAccount, isAccountAuthenticationError, parseMedia, parseUniversalMedia, patchConfig, removeAccount, removeTask, retryTask, saveCookie, startTask, verifyAccount, RequestError, type HealthResponse, type ExtractorStatus } from './api'
 import logoUrl from './assets/mediagrab-logo-small.svg'
 import { TaskRow, type DownloadResult } from './components/TaskRow'
 import { TaskIconTooltip } from './components/TaskIconTooltip'
@@ -54,11 +54,11 @@ import { SettingsModal } from './components/SettingsModal'
 import { MediaPreview } from './components/MediaPreview'
 import { PlatformLogo } from './components/PlatformLogo'
 import { modeOptions } from './lib/options'
+import { applyCookieStatus, invalidateAccount, type CookieAccountState } from './lib/account-state'
 import { chooseDownloadDirectory, notifyDownloadFinished } from './native'
 
 type HistoryPlatformFilter = Platform | 'all'
 type SettingsAccountPlatform = AccountPlatform | 'youtube'
-type CookieAccountState = { cookie: string; configured: boolean; credentialPreview?: string | null; saving: boolean; authFailed: boolean }
 type AutoSaveField = 'savePath' | 'ytDlpPath' | 'defaultDownloadMode'
 type SettingsErrors = Partial<Record<AutoSaveField, string>>
 type WorkspaceView = 'new' | 'queue' | 'history' | 'upscale'
@@ -165,6 +165,7 @@ function App() {
     } catch { return {} }
   })
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
+  const accountRevisionRef = useRef(0)
   const [accountAction, setAccountAction] = useState<{ id: string; action: 'activate' | 'verify' | 'delete' | 'clear-cookie' } | null>(null)
   const [activeAccountPlatform, setActiveAccountPlatform] = useState<SettingsAccountPlatform>('bilibili')
   const [accountCookie, setAccountCookie] = useState('')
@@ -305,6 +306,7 @@ function App() {
     let requestController: AbortController | undefined
 
     const initialize = async () => {
+      const accountRevision = accountRevisionRef.current
       await Promise.allSettled([
         getConfig().then((configData) => {
           if (!active) return
@@ -320,12 +322,12 @@ function App() {
           setAudioContainer(configData.audioContainer)
         }).catch(() => { initialized = false }),
         getExtractorStatus().then((data) => { if (active) setExtractor(data) }),
-        getAccounts().then((data) => { if (active) setAccounts(data.accounts) }),
+        getAccounts().then((data) => { if (active && accountRevision === accountRevisionRef.current) setAccounts(data.accounts) }),
         ...(['douyin', 'xiaohongshu', 'youtube'] as const).map((platform) => getCookieStatus(platform).then((data) => {
-          if (!active) return
+          if (!active || accountRevision !== accountRevisionRef.current) return
           setCookieAccounts((current) => ({
             ...current,
-            [platform]: { ...current[platform], configured: data.configured, credentialPreview: data.credentialPreview },
+            [platform]: applyCookieStatus(current[platform], data),
           }))
         })),
       ])
@@ -366,6 +368,59 @@ function App() {
       window.clearInterval(timer)
     }
   }, [])
+
+  // Recheck saved authentication when settings open, regain focus, or stay open.
+  useEffect(() => {
+    if (!showSettings || coreConnection !== 'ready') return
+    let active = true
+    let refreshing = false
+    const refresh = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return
+      refreshing = true
+      const revision = ++accountRevisionRef.current
+      const canApply = () => active && revision === accountRevisionRef.current
+      try {
+        await Promise.allSettled([
+          (async () => {
+            const data = await getAccounts()
+            if (!canApply()) return
+            setAccounts(data.accounts)
+            const account = data.accounts.find((item) => item.platform === 'bilibili' && item.active)
+            if (account?.status !== 'active') return
+            try {
+              const verified = await verifyAccount(account.id)
+              if (canApply()) {
+                setAccounts((current) => current.map((item) => item.id === account.id ? verified : item))
+                setBiliAuthFailed(false)
+              }
+            } catch (error) {
+              if (canApply() && isAccountAuthenticationError(error)) {
+                setBiliAuthFailed(true)
+                setAccounts((current) => current.map((item) => item.id === account.id ? invalidateAccount(item) : item))
+              }
+            }
+          })(),
+          ...(['douyin', 'xiaohongshu', 'youtube'] as const).map(async (platform) => {
+            const status = await getCookieStatus(platform)
+            if (canApply()) setCookieAccounts((current) => ({ ...current, [platform]: applyCookieStatus(current[platform], status) }))
+          }),
+        ])
+      } finally {
+        refreshing = false
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 60_000)
+    const onFocus = () => { void refresh() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [showSettings, coreConnection])
 
   useEffect(() => {
     let active = true
@@ -634,6 +689,7 @@ function App() {
 
   async function saveBiliAccount() {
     if (isSavingAccount || accountCookie.trim() === '') return
+    accountRevisionRef.current++
     setIsSavingAccount(true)
     try {
       const account = await importBiliAccount(accountCookie)
@@ -643,25 +699,31 @@ function App() {
       setNotice({ kind: 'success', text: `B站账号「${account.displayName || account.label}」已验证并启用。` })
     } catch (error) {
       setBiliAuthFailed(true)
+      if (isAccountAuthenticationError(error)) setAccountCookie('')
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'B站账号导入失败。' })
     } finally {
+      accountRevisionRef.current++
       setIsSavingAccount(false)
     }
   }
 
   async function saveCookieAccount(platform: CookieAccountPlatform) {
+    accountRevisionRef.current++
     setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: true } }))
     try {
       const result = await saveCookie(platform, cookieAccounts[platform].cookie)
       setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '', configured: result.configured, credentialPreview: result.credentialPreview, saving: false, authFailed: false } }))
       setNotice({ kind: 'success', text: `${platformLabel[platform]} Cookie 已加密保存。` })
     } catch (error) {
-      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], saving: false, authFailed: true } }))
+      setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: error instanceof RequestError && error.code === 'COOKIE_EXPIRED' ? '' : current[platform].cookie, saving: false, authFailed: true } }))
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : `${platformLabel[platform]} Cookie 保存失败。` })
+    } finally {
+      accountRevisionRef.current++
     }
   }
 
   async function clearCookieAccount(platform: CookieAccountPlatform) {
+    accountRevisionRef.current++
     if (!cookieAccounts[platform].configured) {
       setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: '', authFailed: false } }))
       return
@@ -676,31 +738,35 @@ function App() {
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : `${platformLabel[platform]} Cookie 清除失败。` })
     } finally {
+      accountRevisionRef.current++
       setAccountAction(null)
     }
   }
 
   async function verifyBiliAccount(id: string) {
     if (accountAction !== null) return
+    accountRevisionRef.current++
     setAccountAction({ id, action: 'verify' })
     try {
       const account = await verifyAccount(id)
       setAccounts((current) => current.map((item) => item.id === id ? account : item))
       setNotice({ kind: 'success', text: `「${account.displayName || account.label}」登录状态有效。` })
     } catch (error) {
-      if (error instanceof Error && error.message.includes('B站 Cookie 已失效或未登录')) {
+      if (isAccountAuthenticationError(error)) {
         setBiliAuthFailed(true)
         setAccountCookie('')
-        setAccounts((current) => current.map((item) => item.id === id ? { ...item, status: 'needs-login', loggedIn: false, vip: false, credentialPreview: null } : item))
+        setAccounts((current) => current.map((item) => item.id === id ? invalidateAccount(item) : item))
       }
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '账号验证失败。' })
     } finally {
+      accountRevisionRef.current++
       setAccountAction(null)
     }
   }
 
   async function deleteBiliAccount(id: string) {
     if (accountAction !== null) return
+    accountRevisionRef.current++
     setAccountAction({ id, action: 'delete' })
     try {
       await removeAccount(id)
@@ -713,6 +779,7 @@ function App() {
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : '删除账号失败。' })
     } finally {
+      accountRevisionRef.current++
       setAccountAction(null)
     }
   }
@@ -918,13 +985,13 @@ function App() {
         accountCookie={accountCookie}
         biliAuthFailed={biliAuthFailed}
         isSavingAccount={isSavingAccount}
-        onAccountCookieChange={(value) => { setAccountCookie(value); setBiliAuthFailed(false) }}
+        onAccountCookieChange={(value) => { accountRevisionRef.current++; setAccountCookie(value); setBiliAuthFailed(false) }}
         onClose={closeSettings}
         onSaveAccount={() => void saveBiliAccount()}
         onClearBiliCookie={clearBiliCookie}
         onVerifyAccount={(id) => void verifyBiliAccount(id)}
         cookieAccounts={cookieAccounts}
-        onCookieChange={(platform, value) => setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: value, authFailed: false } }))}
+        onCookieChange={(platform, value) => { accountRevisionRef.current++; setCookieAccounts((current) => ({ ...current, [platform]: { ...current[platform], cookie: value, authFailed: false } })) }}
         onSaveCookie={(platform) => void saveCookieAccount(platform)}
         onClearCookie={(platform) => void clearCookieAccount(platform)}
       />
