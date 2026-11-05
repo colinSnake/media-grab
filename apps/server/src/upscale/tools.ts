@@ -19,7 +19,16 @@ export async function capability(signal = new AbortController().signal): Promise
   if (process.platform !== 'darwin' || process.arch !== 'arm64') return { capability: { ...base, reason: '首版仅支持 macOS Apple Silicon' } }
   try {
     const bundled = resolveBundledTool('ffmpeg')
-    const root = await realpath(process.env.MEDIAGRAB_UPSCALE_DIR?.trim() || (bundled ? path.join(path.dirname(bundled), 'upscale') : '/nonexistent/mediagrab-upscale'))
+    const candidate = process.env.MEDIAGRAB_UPSCALE_DIR?.trim() || (bundled ? path.join(path.dirname(bundled), 'upscale') : '/nonexistent/mediagrab-upscale')
+    let root: string
+    try {
+      root = await realpath(candidate)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { capability: { ...base, reason: '未找到超分依赖目录；此安装包可能未包含超分引擎资源' } }
+      }
+      throw error
+    }
     const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8')) as { target: string; model: string; files: Record<string, string>; versions: Record<string, string> }
     if (manifest.target !== base.platform || manifest.model !== model) throw new Error('依赖 manifest 平台/模型不匹配')
     const names = ['ffmpeg', 'ffprobe', 'realesrgan-ncnn-vulkan', `models/${model}.bin`, `models/${model}.param`]

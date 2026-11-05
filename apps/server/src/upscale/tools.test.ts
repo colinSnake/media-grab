@@ -19,6 +19,13 @@ async function fixture() {
   await writeFile(path.join(root, 'manifest.json'), JSON.stringify({ target: 'darwin-arm64', model, files, versions }))
 }
 describe.runIf(process.platform === 'darwin' && process.arch === 'arm64')('dependency capability checks', () => {
+  it('reports a missing packaged upscale directory as an unavailable engine, not a filesystem exception', async () => {
+    vi.stubEnv('MEDIAGRAB_UPSCALE_DIR', path.join(root, 'not-staged'))
+    const result = (await capability()).capability
+    expect(result.available).toBe(false)
+    expect(result.reason).toContain('未找到超分依赖目录')
+    expect(result.reason).not.toContain('ENOENT')
+  })
   it('reports missing dependencies instead of fabricating availability', async () => { expect((await capability()).capability.available).toBe(false) })
   it('rejects mismatched target/model, missing weights, invalid hashes and architecture', async () => {
     await fixture(); expect((await capability()).capability.available).toBe(true)
