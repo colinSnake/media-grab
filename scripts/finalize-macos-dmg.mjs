@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bundleDir = path.join(root, 'apps', 'desktop', 'src-tauri', 'target', 'release', 'bundle')
 const execFileAsync = promisify(execFile)
+const requestedImage = process.argv[2]
+if (process.argv.length > 3) throw new Error('Usage: finalize-macos-dmg.mjs [bundle/dmg-file.dmg]')
 
 async function findDiskImages(directory) {
   const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
@@ -28,7 +30,13 @@ if (process.platform === 'darwin') {
   // producing the distributable DMG. Only the final images in bundle/dmg are
   // safe to post-process; touching the temporary source can make hdiutil fail
   // with "Resource temporarily unavailable" while it is still mounted.
-  const images = await findDiskImages(path.join(bundleDir, 'dmg'))
+  let images
+  if (requestedImage) {
+    const image = path.resolve(requestedImage)
+    const dmgDir = path.join(bundleDir, 'dmg')
+    if (path.dirname(image) !== dmgDir || !image.endsWith('.dmg')) throw new Error('指定的 DMG 必须直接位于 bundle/dmg')
+    images = [image]
+  } else images = await findDiskImages(path.join(bundleDir, 'dmg'))
   if (images.length === 0) throw new Error(`找不到待清理的 macOS DMG: ${bundleDir}`)
 
   for (const image of images) {

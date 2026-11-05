@@ -16,6 +16,30 @@ test('offline FFmpeg builder pins every source archive', () => {
   for (const source of sources) { assert.match(source.sha256, /^[a-f0-9]{64}$/); assert.ok(source.url.startsWith('https://')) }
 })
 
+test('ordinary desktop build refreshes and verifies its packaged server runtime', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { fileURLToPath } = await import('node:url')
+  const path = await import('node:path')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+  const build = manifest.scripts['build:desktop']
+  assert.match(build, /pnpm prepare:desktop-runtime/)
+  assert.match(build, /pnpm verify:desktop-runtime/)
+  assert.match(build, /create-macos-dmg\.mjs/)
+  assert.ok(build.indexOf('pnpm prepare:desktop-runtime') < build.indexOf('tauri build --bundles app'))
+  assert.ok(build.indexOf('pnpm verify:desktop-runtime') < build.indexOf('tauri build --bundles app'))
+})
+
+test('development upscale opt-in cannot be combined with release verification', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { fileURLToPath } = await import('node:url')
+  const path = await import('node:path')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const verifier = await readFile(path.join(root, 'scripts/verify-upscale-tools.mjs'), 'utf8')
+  assert.match(verifier, /allowDevelopment && \(args\.includes\('--required'\) \|\| args\.includes\('--require-signatures'\)\)/)
+  assert.match(verifier, /developmentOnly && !allowDevelopment/)
+})
+
 test('app verification resolves both Tauri resource layouts without using developer directories', async () => {
   const { bundleUpscaleLayout } = await import('./upscale-release-support.mjs')
   const { mkdtemp, mkdir, rm } = await import('node:fs/promises')

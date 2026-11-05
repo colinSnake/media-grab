@@ -82,7 +82,7 @@ try {
       const nonce = 'd'.repeat(32)
       const challenge = await fetch(address + '/api/health', { headers: { 'X-Mediagrab-Nonce': nonce } })
       assert.equal(challenge.headers.get('x-mediagrab-proof'), createHmac('sha256', token).update(nonce).digest('hex'))
-      for (const endpoint of ['/api/health', '/api/config', '/api/accounts', '/api/tasks', '/api/accounts/douyin/cookie', '/api/accounts/xiaohongshu/cookie']) {
+      for (const endpoint of ['/api/health', '/api/config', '/api/accounts', '/api/tasks', '/api/accounts/douyin/cookie', '/api/accounts/xiaohongshu/cookie', '/api/upscale/capability']) {
         const response = await fetch(address + endpoint, { headers: { Origin: 'tauri://localhost', 'X-Mediagrab-Token': token } })
         assert.equal(response.status, 200, endpoint)
         assert.equal(response.headers.get('access-control-allow-origin'), 'tauri://localhost', endpoint)

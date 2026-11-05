@@ -13,6 +13,10 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--app') { app = args[++i]; if (!app) throw new Error('--app needs an absolute .app path') }
   else if (!['--required', '--require-signatures'].includes(args[i])) throw new Error(`Unknown argument: ${args[i]}`)
 }
+const allowDevelopment = process.env.MEDIAGRAB_ALLOW_DEVELOPMENT_UPSCALE === '1'
+if (allowDevelopment && (args.includes('--required') || args.includes('--require-signatures'))) {
+  throw new Error('Development-only upscale resources are forbidden in release/signature verification')
+}
 const target = `${process.platform}-${process.arch}`
 if (target !== 'darwin-arm64') {
   if (app) throw new Error('macOS Apple Silicon bundle verification requires native darwin-arm64')
@@ -29,10 +33,14 @@ try { await access(path.join(directory, 'manifest.json')) } catch {
   console.log('Upscale dependencies not staged; desktop capability will report unavailable.'); process.exit(0)
 }
 const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8'))
-if (manifest.developmentOnly || manifest.redistributionReviewed !== true) throw new Error('Development-only or unreviewed dependencies cannot enter a release bundle')
-for (const name of ['Real-ESRGAN-LICENSE.txt', 'Real-ESRGAN-ncnn-vulkan-LICENSE.txt', 'FFmpeg-LICENSE.txt', 'x264-LICENSE.txt', 'FFmpeg-SOURCE-NOTICE.txt', 'THIRD_PARTY_NOTICES.txt', 'provenance.json']) {
-  const data = await readFile(path.join(directory, name))
-  if (!data.length || createHash('sha256').update(data).digest('hex') !== manifest.files[name]) throw new Error(`Missing/mismatched release notice: ${name}`)
+const developmentOnly = manifest.developmentOnly === true
+if (developmentOnly && !allowDevelopment) throw new Error('Development-only upscale resources require MEDIAGRAB_ALLOW_DEVELOPMENT_UPSCALE=1')
+if (!developmentOnly && manifest.redistributionReviewed !== true) throw new Error('Unreviewed dependencies cannot enter a release bundle')
+if (!developmentOnly) {
+  for (const name of ['Real-ESRGAN-LICENSE.txt', 'Real-ESRGAN-ncnn-vulkan-LICENSE.txt', 'FFmpeg-LICENSE.txt', 'x264-LICENSE.txt', 'FFmpeg-SOURCE-NOTICE.txt', 'THIRD_PARTY_NOTICES.txt', 'provenance.json']) {
+    const data = await readFile(path.join(directory, name))
+    if (!data.length || createHash('sha256').update(data).digest('hex') !== manifest.files[name]) throw new Error(`Missing/mismatched release notice: ${name}`)
+  }
 }
 await access(layout.node); await access(layout.capabilityModule); await access(layout.supervisor)
 for (const name of ['ffmpeg', 'ffprobe', 'realesrgan-ncnn-vulkan']) {
@@ -50,4 +58,4 @@ const output = execFileSync(layout.node, ['--input-type=module', '-e', code], {
 })
 const result = JSON.parse(output)
 if (!result.available) throw new Error(result.reason)
-console.log(JSON.stringify({ application: app ?? null, runtime: layout.node, capability: result, note: 'Resource verification only; GUI and notarization acceptance are separate.' }, null, 2))
+console.log(JSON.stringify({ application: app ?? null, runtime: layout.node, capability: result, developmentOnly, note: 'Resource verification only; GUI and notarization acceptance are separate.' }, null, 2))
