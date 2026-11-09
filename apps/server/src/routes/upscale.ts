@@ -16,8 +16,8 @@ export const upscaleRoutes: FastifyPluginAsync<{ services: Services; coreToken?:
       return reply.status(403).send({ error: { code: 'UPSCALE_DESKTOP_ONLY', message: '本地超分需要已验证的桌面会话', kind: 'forbidden', retryable: false } })
     }
   })
-  app.get('/api/upscale/capability', async () => (await services.upscale.capabilities()).capability)
-  app.get('/api/upscale/tasks', async () => ({ tasks: services.upscale.list() }))
+  app.get('/api/upscale/capability', async () => (await services.upscale.capabilities(true)).capability)
+  app.get('/api/upscale/tasks', async () => ({ tasks: services.upscale.list(), storageReason: services.upscale.storageReason }))
   app.get<{ Params: { id: string } }>('/api/upscale/tasks/:id/thumbnail', async (req, reply) => {
     const image = await services.upscale.thumbnail(req.params.id)
     return reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').type('image/png').send(image)
@@ -44,8 +44,17 @@ export const upscaleRoutes: FastifyPluginAsync<{ services: Services; coreToken?:
   app.post<{ Params: { id: string } }>('/api/upscale/grants/:id/repair-preview', async (req, reply) => {
     const body = z.object({ strokes: repairStrokesSchema }).strict().safeParse(req.body)
     if (!body.success) throw invalid('修补选区参数不合法')
-    const image = await services.upscale.repairPreview(req.params.id, body.data.strokes)
-    return reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').type('image/png').send(image)
+    const abort = new AbortController()
+    const disconnect = () => { if (!reply.raw.writableFinished) abort.abort() }
+    req.raw.once('aborted', disconnect)
+    reply.raw.once('close', disconnect)
+    try {
+      const image = await services.upscale.repairPreview(req.params.id, body.data.strokes, abort.signal)
+      return reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').type('image/png').send(image)
+    } finally {
+      req.raw.removeListener('aborted', disconnect)
+      reply.raw.removeListener('close', disconnect)
+    }
   })
   app.delete<{ Params: { id: string } }>('/api/upscale/tasks/:id', async (req, reply) => {
     await services.upscale.remove(req.params.id)

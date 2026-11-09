@@ -5,6 +5,11 @@ import { repairStrokesSchema } from '@mediagrab/shared'
 const absolute = z.string().min(1).max(4096).refine(path.isAbsolute)
 const timestamp = z.number().finite().nonnegative()
 const digest = z.string().regex(/^[a-f0-9]{64}$/)
+export function insideWork(work: string, file: string): boolean {
+  const relative = path.relative(work, file)
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) && path.normalize(file) === file
+}
+const result = z.object({ path: absolute, bytes: z.number().int().positive(), sha256: digest, audioSha256: z.string().regex(/^SHA256=[a-f0-9]{64}$/).optional() })
 // SQLite snapshots are not a trusted type assertion: a damaged/old row must not
 // prevent downloads or the desktop core from starting, nor drive unsafe cleanup.
 export const upscaleRecordSchema = z.object({
@@ -20,11 +25,13 @@ export const upscaleRecordSchema = z.object({
       duration: z.number().finite().positive().max(600), audio: z.boolean(),
     }).optional(),
     createdAt: timestamp, updatedAt: timestamp,
+    storageWarning: z.string().optional(),
     error: z.object({ code: z.string(), message: z.string() }).optional(),
-    result: z.object({ path: absolute, bytes: z.number().int().positive(), sha256: digest, audioSha256: z.string().regex(/^SHA256=[a-f0-9]{64}$/).optional() }).optional(),
+    result: result.optional(),
   }),
-  identity: z.string().min(1), work: absolute.optional(), repair: repairStrokesSchema.optional(),
+  identity: z.string().min(1), work: absolute.optional(), pendingOutput: result.optional(), repair: repairStrokesSchema.optional(),
 }).superRefine((record, context) => {
+  if (record.pendingOutput && (!record.work || !insideWork(record.work, record.pendingOutput.path) || record.pendingOutput.path === record.task.output)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['pendingOutput'], message: '候选输出必须位于任务专属临时目录内' })
   const media = record.task.media
   if (media && record.task.kind === 'video' && (media.width > 1920 || media.height > 1080 || media.width % 2 !== 0 || media.height % 2 !== 0)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['task', 'media'], message: '视频任务尺寸超出范围' })
   if (media && record.task.kind === 'image' && (media.width * media.height > 8_000_000 || media.frames !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['task', 'media'], message: '图片任务超过像素或帧数上限' })

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { UpscaleCapability } from '@mediagrab/shared'
 import { resolveBundledTool } from '../media-tools.js'
 import { Processes } from './process.js'
+import { repairCapability } from './repair-capability.js'
 
 export const limits = { maxSeconds: 600, maxFrames: 36000, maxPixels: 1920 * 1080, maxImagePixels: 8_000_000, maxImageSide: 4096, batch: 12, tile: 256 }
 export const model = 'realesr-animevideov3-x2' as const
@@ -15,7 +16,7 @@ export async function sha256(file: string): Promise<string> {
   return createHash('sha256').update(await readFile(file)).digest('hex')
 }
 export async function capability(signal = new AbortController().signal): Promise<{ capability: UpscaleCapability; tools?: Tools }> {
-  const base: UpscaleCapability = { available: false, model, platform: `${process.platform}-${process.arch}`, limits }
+  const base: UpscaleCapability = { available: false, repairAvailable: false, repairReason: '超分基础依赖不可用', model, platform: `${process.platform}-${process.arch}`, limits }
   if (process.platform !== 'darwin' || process.arch !== 'arm64') return { capability: { ...base, reason: '首版仅支持 macOS Apple Silicon' } }
   try {
     const bundled = resolveBundledTool('ffmpeg')
@@ -57,7 +58,10 @@ export async function capability(signal = new AbortController().signal): Promise
     const demuxers = await processes.run(ffmpeg, ['-hide_banner', '-demuxers'])
     const muxers = await processes.run(ffmpeg, ['-hide_banner', '-muxers'])
     if (!/\blibx264\b/.test(encoders) || !/\bpng\b/.test(encoders) || !/\bh264\b/.test(decoders) || !/\baac\b/.test(decoders) || !/\bpng\b/.test(decoders) || !/\bmov\b/.test(demuxers) || !/\bimage2pipe\b/.test(demuxers)) throw new Error('FFmpeg 缺少 H.264/AAC/PNG/MP4/image2pipe 处理能力')
-    const imageAvailable = /\bmjpeg\b/.test(decoders) && /\bimage2\b/.test(demuxers) && /\bimage2\b/.test(muxers) && /^\s*D[^\n]*\brawvideo\b/m.test(demuxers) && /^\s*E[^\n]*\brawvideo\b/m.test(muxers)
-    return { capability: { ...base, available: true, imageAvailable, ...(imageAvailable ? {} : { imageReason: '当前本地 FFmpeg 缺少图片超分/修补所需能力，请更新超分依赖后重试。' }), tools: details }, tools: { ffmpeg: path.join(root, 'ffmpeg'), ffprobe: path.join(root, 'ffprobe'), engine: path.join(root, 'realesrgan-ncnn-vulkan'), models: path.join(root, 'models') } }
+    const imageAvailable = /\bmjpeg\b/.test(decoders) && /\bimage2\b/.test(demuxers) && /\bimage2\b/.test(muxers)
+    const filters = await processes.run(ffmpeg, ['-hide_banner', '-filters'])
+    const repairFormats = imageAvailable && /\brawvideo\b/.test(encoders) && /\brawvideo\b/.test(decoders) && /^\s*D[^\n]*\brawvideo\b/m.test(demuxers) && /^\s*E[^\n]*\brawvideo\b/m.test(muxers) && ['scale', 'pad', 'crop'].every((name) => new RegExp(`\\b${name}\\b`).test(filters))
+    const repair = repairFormats ? await repairCapability(signal) : { repairAvailable: false, repairReason: '本地 FFmpeg 缺少图片修补所需 rawvideo 或 scale/pad/crop 能力' }
+    return { capability: { ...base, ...repair, available: true, imageAvailable, ...(imageAvailable ? {} : { imageReason: '当前本地 FFmpeg 缺少图片超分所需能力，请更新超分依赖后重试。' }), tools: details }, tools: { ffmpeg: path.join(root, 'ffmpeg'), ffprobe: path.join(root, 'ffprobe'), engine: path.join(root, 'realesrgan-ncnn-vulkan'), models: path.join(root, 'models') } }
   } catch (e) { return { capability: { ...base, reason: e instanceof Error ? e.message : String(e) } } }
 }

@@ -55,8 +55,8 @@ export class Processes {
     void done.catch(() => {}).finally(() => this.pending.delete(done))
     return { child, done, heartbeat: () => { if (options.timeoutMode === 'idle' && !stopping) timeout.refresh() } }
   }
-  async run(executable: string, args: string[], maxBytes = 16 * 1024 * 1024): Promise<string> {
-    const { child, done } = this.start(executable, args)
+  async run(executable: string, args: string[], maxBytes = 16 * 1024 * 1024, options: ProcessOptions = {}): Promise<string> {
+    const { child, done } = this.start(executable, args, options)
     child.stdin.end()
     const chunks: Buffer[] = []
     let bytes = 0

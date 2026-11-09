@@ -44,7 +44,7 @@ export function requiredSpace(media: UpscaleMedia, sourceBytes: number): number 
   return Math.ceil(512 * 1024 ** 2 + Math.min(limits.batch, media.frames) * media.width * media.height * 5 * 4 + Math.max(sourceBytes * 4, media.duration * 10_000_000) * 2)
 }
 export function ensureSpace(availableBytes: number, media: UpscaleMedia, sourceBytes: number): void {
-  if (!Number.isFinite(availableBytes) || availableBytes < requiredSpace(media, sourceBytes)) throw new Error('输出卷可用空间不足（包括候选视频和有界临时帧）')
+  if (!Number.isFinite(availableBytes) || availableBytes < requiredSpace(media, sourceBytes)) throw Object.assign(new Error('输出卷可用空间不足（包括候选视频和有界临时帧）'), { code: 'ENOSPC' })
 }
 export async function checkSpace(directory: string, media: UpscaleMedia, sourceBytes: number): Promise<void> {
   const fs = await statfs(directory)

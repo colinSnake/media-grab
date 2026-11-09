@@ -45,3 +45,8 @@ it('uses a restricted still-image demuxer for image previews', async () => {
   expect(args).toEqual(expect.arrayContaining(['-protocol_whitelist', 'file', '-f', 'image2', '-pattern_type', 'none']))
   expect(args).not.toContain('mov')
 })
+
+it('uses a larger bounded image preview for precise selection without enlarging task covers', async () => {
+  await firstFrame('fixture-ffmpeg', '/fixture/input.png', new AbortController().signal, 'image', true)
+  expect(fixture.start.mock.calls[0]![1]).toContain('scale=1280:1280:force_original_aspect_ratio=decrease,format=rgb24')
+})

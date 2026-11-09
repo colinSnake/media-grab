@@ -2,6 +2,10 @@ import { readFile, writeFile } from 'node:fs/promises'
 import * as ort from 'onnxruntime-node'
 
 const [modelPath, imagePath, maskPath, outputPath] = process.argv.slice(2)
+if (modelPath === '--check-runtime') {
+  console.log('ONNX Runtime native bindings loaded')
+  process.exit(0)
+}
 if (!modelPath || !imagePath || !maskPath || !outputPath) throw new Error('Missing inpainting runner arguments')
 const imageBytes = await readFile(imagePath)
 const maskBytes = await readFile(maskPath)
@@ -16,6 +20,8 @@ const session = await ort.InferenceSession.create(modelPath, {
 })
 try {
   if (session.inputNames.join(',') !== 'image,mask' || session.outputNames[0] !== 'output') throw new Error('LaMa model interface mismatch')
+  // Lifecycle marker for supervised cancellation regression; never log image/model contents.
+  console.log('MEDIAGRAB_INPAINT_INFERENCE_STARTED')
   const result = await session.run({
     image: new ort.Tensor('float32', image, [1, 3, 512, 512]),
     mask: new ort.Tensor('float32', mask, [1, 1, 512, 512]),

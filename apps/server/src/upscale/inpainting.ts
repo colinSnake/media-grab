@@ -2,10 +2,10 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { repairModelPath } from './repair-capability.js'
 import type { RepairStrokes, UpscaleMedia } from '@mediagrab/shared'
 import { Processes } from './process.js'
 
-const modelPath = () => process.env.MEDIAGRAB_INPAINT_MODEL?.trim() || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../.release-tools/watermark-inpainting/lama.onnx')
 const side = 512
 const maxMaskRasterWork = 16_000_000
 let inferenceTail: Promise<void> = Promise.resolve()
@@ -91,7 +91,7 @@ async function inference(pixels: Buffer, width: number, height: number, strokes:
     await writeFile(maskInput, Buffer.from(mask.buffer, mask.byteOffset, mask.byteLength))
     const runner = fileURLToPath(new URL('./inpainting-runner.mjs', import.meta.url))
     const processes = new Processes(signal)
-    await processes.run(process.execPath, [runner, modelPath(), modelInput, maskInput, modelOutput])
+    await processes.run(process.execPath, [runner, repairModelPath(), modelInput, maskInput, modelOutput])
     const outputBytes = await readFile(modelOutput)
     if (outputBytes.length !== 3 * side * side * Float32Array.BYTES_PER_ELEMENT) throw new Error('模型输出尺寸无效')
     const values = new Float32Array(outputBytes.buffer, outputBytes.byteOffset, outputBytes.byteLength / Float32Array.BYTES_PER_ELEMENT)

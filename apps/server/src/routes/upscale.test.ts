@@ -89,3 +89,48 @@ it('protects first-frame previews with desktop headers and returns only bounded 
     expect(thumbnail).toHaveBeenCalledWith(id)
   } finally { await app.close() }
 })
+
+it('propagates preview request disconnection to the owned abort signal', async () => {
+  const token = 'c'.repeat(64), services = createServices({ config: defaultAppConfig(), dbPath: ':memory:' })
+  let observed: AbortSignal | undefined
+  vi.spyOn(services.upscale, 'repairPreview').mockImplementation((_id, _strokes, signal) => {
+    observed = signal
+    return new Promise((_resolve, reject) => signal!.addEventListener('abort', () => reject(new Error('preview request cancelled')), { once: true }))
+  })
+  const app = await buildApp({ config: defaultAppConfig(), services, coreToken: token, logger: false }), controller = new AbortController()
+  try {
+    const address = await app.listen({ host: '127.0.0.1', port: 0 })
+    const response = fetch(`${address}/api/upscale/grants/${randomUUID()}/repair-preview`, { method: 'POST', headers: { 'x-mediagrab-token': token, origin: 'tauri://localhost', 'Content-Type': 'application/json' }, body: JSON.stringify({ strokes: [{ radius: .04, points: [{ x: .5, y: .5 }] }] }), signal: controller.signal }).catch(() => undefined)
+    await expect.poll(() => Boolean(observed)).toBe(true)
+    expect(observed!.aborted).toBe(false)
+    controller.abort(); await response
+    await expect.poll(() => observed!.aborted).toBe(true)
+  } finally { controller.abort(); await app.close() }
+})
+
+it('preserves actionable storage error codes in the authenticated API response', async () => {
+  const services = createServices({ config: defaultAppConfig(), dbPath: ':memory:' })
+  const { ApiError } = await import('../lib/errors.js')
+  vi.spyOn(services.upscale, 'create').mockRejectedValue(new ApiError('STORAGE_FULL', '存储空间不足，已暂停新任务', 'fatal', 503))
+  const token = 'd'.repeat(64), app = await buildApp({ config: defaultAppConfig(), services, coreToken: token, logger: false })
+  try {
+    const response = await app.inject({ method: 'POST', url: '/api/upscale/tasks', headers: { 'x-mediagrab-token': token, origin: 'tauri://localhost' }, payload: { grant: randomUUID(), fileName: 'storage.mp4' } })
+    expect(response.statusCode).toBe(503)
+    expect(response.json().error).toMatchObject({ code: 'STORAGE_FULL', message: expect.stringContaining('空间不足') })
+  } finally { await app.close() }
+})
+
+
+it('reports live storage blocking through task polling without implicitly retrying', async () => {
+  const services = createServices({ config: defaultAppConfig(), dbPath: ':memory:' })
+  const reason = vi.spyOn(services.upscale, 'storageReason', 'get').mockReturnValue('输出卷空间不足，已暂停队列')
+  const capabilities = vi.spyOn(services.upscale, 'capabilities')
+  const token = 'e'.repeat(64), app = await buildApp({ config: defaultAppConfig(), services, coreToken: token, logger: false })
+  const headers = { 'x-mediagrab-token': token, origin: 'tauri://localhost' }
+  try {
+    expect((await app.inject({ url: '/api/upscale/tasks', headers })).json()).toEqual({ tasks: [], storageReason: '输出卷空间不足，已暂停队列' })
+    expect(capabilities).not.toHaveBeenCalled()
+    reason.mockReturnValue(undefined)
+    expect((await app.inject({ url: '/api/upscale/tasks', headers })).json()).toEqual({ tasks: [] })
+  } finally { await app.close() }
+})

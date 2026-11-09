@@ -2,19 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-const control = vi.hoisted(() => ({ arch: 'arm64', image: true }))
+const control = vi.hoisted(() => ({ arch: 'arm64', image: true, repair: true }))
 vi.mock('./process.js', () => ({ Processes: class {
   async run(file: string, args: string[]): Promise<string> {
-    if (args.includes('-decoders')) return control.image ? 'h264 aac png mjpeg' : 'h264 aac png'
+    if (args.includes('-decoders')) return control.image ? 'h264 aac png mjpeg rawvideo' : 'h264 aac png'
     if (args.includes('-demuxers')) return control.image ? 'D mov D image2 D image2pipe D rawvideo' : 'D mov D image2pipe'
     if (args.includes('-muxers')) return control.image ? 'E mp4 E image2 E image2pipe E rawvideo' : 'E mp4 E image2pipe'
-    if (args.includes('-encoders')) return 'libx264 png'
+    if (args.includes('-encoders')) return 'libx264 png rawvideo'
+    if (args.includes('-filters')) return 'scale pad crop'
     return file === '/usr/bin/lipo' ? control.arch : 'fixture-version'
   }
 } }))
+vi.mock('./repair-capability.js', () => ({ repairCapability: async () => ({ repairAvailable: control.repair, repairReason: control.repair ? undefined : '未安装图片修补模型' }) }))
 import { capability, model, sha256 } from './tools.js'
 let root: string
-beforeEach(async () => { root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-tools-'))); vi.stubEnv('MEDIAGRAB_UPSCALE_DIR', root); control.arch = 'arm64'; control.image = true })
+beforeEach(async () => { root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-tools-'))); vi.stubEnv('MEDIAGRAB_UPSCALE_DIR', root); control.arch = 'arm64'; control.image = true; control.repair = true })
 afterEach(async () => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }) })
 async function fixture() {
   await mkdir(path.join(root, 'models'))
@@ -33,6 +35,7 @@ describe.runIf(process.platform === 'darwin' && process.arch === 'arm64')('depen
     expect(result.reason).not.toContain('ENOENT')
   })
   it('reports missing dependencies instead of fabricating availability', async () => { expect((await capability()).capability.available).toBe(false) })
+  it('disables only repair when the model/native runtime is missing', async () => { await fixture(); control.repair = false; expect((await capability()).capability).toMatchObject({ available: true, imageAvailable: true, repairAvailable: false, repairReason: '未安装图片修补模型' }) })
   it('keeps video capability when an older runtime lacks image formats', async () => { await fixture(); control.image = false; expect((await capability()).capability).toMatchObject({ available: true, imageAvailable: false }) })
   it('rejects mismatched target/model, missing weights, invalid hashes and architecture', async () => {
     await fixture(); expect((await capability()).capability.available).toBe(true)

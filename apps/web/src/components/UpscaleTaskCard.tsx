@@ -52,6 +52,7 @@ export function UpscaleTaskCard({ task, busy, onCancel, onOpen, onRemove }: {
       <progress aria-label={`${fileName(task.output)}超分进度`} max={100} value={progress} />
       <div className="upscale-progress-meta"><span>{task.completedFrames.toLocaleString('zh-CN')} / {knownFrames?.toLocaleString('zh-CN') ?? '—'} {kind === 'image' ? '张图片' : '帧'}</span><span>{running ? kind === 'image' ? '单图推理 · 完成后自动校验' : '批次处理 · 完成后自动校验' : succeeded ? kind === 'image' ? '图片尺寸与输出已校验' : '帧数与音轨已校验' : queued ? '按创建顺序处理' : '任务已停止'}</span></div>
     </div>
+    {task.storageWarning && <p className="upscale-job-error" role="status"><AlertTriangle aria-hidden="true" /><span>{task.status === 'succeeded' ? '处理结果已保存，但任务记录尚未落盘：' : '任务状态尚未落盘：'}{task.storageWarning}</span></p>}
     {task.error && <p className="upscale-job-error" role="alert"><AlertTriangle aria-hidden="true" /><span>{task.error.message}</span></p>}
     <div className="upscale-job-footer">
       <details className="upscale-job-location"><summary><FolderOpen aria-hidden="true" /><span>输出位置</span><ChevronDown aria-hidden="true" /></summary><p>{task.output}</p></details>

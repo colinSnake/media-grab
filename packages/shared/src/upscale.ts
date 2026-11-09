@@ -72,6 +72,7 @@ export interface UpscaleTask {
   media?: UpscaleMedia
   createdAt: number
   updatedAt: number
+  storageWarning?: string
   error?: { code: string; message: string }
   result?: { path: string; bytes: number; sha256: string; audioSha256?: string }
 }
@@ -82,6 +83,9 @@ export interface UpscaleCapability {
   platform: string
   imageAvailable?: boolean
   imageReason?: string
+  repairAvailable?: boolean
+  repairReason?: string
+  storageReason?: string
   limits: { maxSeconds: number; maxFrames: number; maxPixels: number; maxImagePixels: number; maxImageSide: number; batch: number; tile: number }
   tools?: Record<string, { path: string; sha256: string; version: string }>
 }

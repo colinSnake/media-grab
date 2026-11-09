@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, realpath, rm, stat, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, lstat, writeFile, mkdir, readdir, link, symlink } from 'node:fs/promises'
 import os from 'node:os'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import path from 'node:path'
 import { Database } from '../store/db.js'
 import type { UpscaleTask } from '@mediagrab/shared'
 
-const control = vi.hoisted(() => ({ mode: 'success', inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined as undefined | (() => void), beforeLink: undefined as undefined | (() => void) }))
-vi.mock('./tools.js', async (original) => ({ ...await original<typeof import('./tools.js')>(), capability: vi.fn(async () => ({ capability: { available: true, imageAvailable: true }, tools: { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' } })) }))
+const control = vi.hoisted(() => ({ repair: true, mode: 'success', fullOutputProbe: false, inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined as undefined | (() => void), beforeLink: undefined as undefined | (() => void) }))
+vi.mock('./tools.js', async (original) => ({ ...await original<typeof import('./tools.js')>(), capability: vi.fn(async () => ({ capability: { available: true, imageAvailable: true, repairAvailable: control.repair, repairReason: control.repair ? undefined : '未安装图片修补模型' }, tools: { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' } })) }))
 vi.mock('./probe.js', async (original) => ({ ...await original<typeof import('./probe.js')>(), inspect: vi.fn(async () => ({})), inspectImage: vi.fn(async () => ({})), timeline: vi.fn(async () => {}), supportedMedia: vi.fn(() => ({ width: 128, height: 72, fps: '24/1', frames: 26, duration: 26 / 24, audio: false })), supportedImage: vi.fn(() => ({ width: 800, height: 600, fps: '1/1', frames: 1, duration: 1, audio: false })) }))
 
 vi.mock('./image-pipeline.js', () => ({ imagePipeline: vi.fn(async (_input: string, work: string, _tools: unknown, _processes: unknown, update: (stage: string, completed: number) => void) => {
   const file = path.join(work, 'candidate.png'); await writeFile(file, 'unit fixture, not real image upscale')
   update('validating', 1)
-  return { path: file, bytes: 37, sha256: 'unit-test-only' }
+  return { path: file, bytes: Buffer.byteLength('unit fixture, not real image upscale'), sha256: createHash('sha256').update('unit fixture, not real image upscale').digest('hex') }
 }) }))
 
 vi.mock('./pipeline.js', async (original) => ({ ...await original<typeof import('./pipeline.js')>(), pipeline: vi.fn(async (_input, work, _tools, processes, update) => {
@@ -22,33 +22,40 @@ vi.mock('./pipeline.js', async (original) => ({ ...await original<typeof import(
     update('upscaling', 0)
     if (control.mode === 'wait') await new Promise<void>((_resolve, reject) => { processes.signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true }); if (processes.signal.aborted) reject(new DOMException('This operation was aborted', 'AbortError')) })
     if (control.mode === 'fail') throw new Error('controlled engine failure')
+    if (control.mode === 'message-full') throw new Error('ffmpeg failed: No space left on device')
+    if (control.mode === 'quota') throw new Error('output failed', { cause: Object.assign(new Error('Disk quota exceeded'), { code: 'EDQUOT' }) })
+    if (control.mode === 'enospc') throw Object.assign(new Error('No space left on device'), { code: 'ENOSPC' })
     const file = path.join(work, 'candidate.mp4'); await writeFile(file, 'unit fixture, not real upscale')
     update('validating', 26)
-    return { path: file, bytes: 29, sha256: 'unit-test-only' }
+    return { path: file, bytes: Buffer.byteLength('unit fixture, not real upscale'), sha256: createHash('sha256').update('unit fixture, not real upscale').digest('hex') }
   } finally { control.inFlight-- }
 }) }))
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>()
   return { ...actual, link: async (src: string, dest: string) => {
+    if (control.fullOutputProbe && path.basename(src) === 'source') throw new Error('No space left on device')
     if (control.unsupportedLinks) throw Object.assign(new Error('No hardlinks'), { code: 'ENOTSUP' })
     if (control.blockCommit && path.basename(src) === 'candidate.mp4') { control.beforeLink?.(); await new Promise<void>((resolve) => { control.releaseCommit = resolve }) }
     return actual.link(src, dest)
   } }
 })
 vi.mock('./thumbnail.js', () => ({ firstFrame: vi.fn(async () => Buffer.from('89504e470d0a1a0a', 'hex')) }))
+vi.mock('./repair-capability.js', () => ({ repairCapability: vi.fn(async () => ({ repairAvailable: control.repair, repairReason: control.repair ? undefined : '未安装图片修补模型' })) }))
 vi.mock('./inpainting.js', () => ({ repairImagePreview: vi.fn(async () => Buffer.from('PNG')) }))
 import { firstFrame } from './thumbnail.js'
 import { repairImagePreview } from './inpainting.js'
 import { UpscaleService } from './service.js'
+import { Processes } from './process.js'
 let root: string, db: Database, service: UpscaleService, input: string
 beforeEach(async () => {
   vi.mocked(firstFrame).mockClear()
-  Object.assign(control, { mode: 'success', inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined, beforeLink: undefined })
+  vi.mocked(repairImagePreview).mockReset().mockResolvedValue(Buffer.from('PNG'))
+  Object.assign(control, { repair: true, mode: 'success', fullOutputProbe: false, inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined, beforeLink: undefined })
   root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-lifecycle-')))
   input = path.join(root, 'input.mp4'); await writeFile(input, 'original')
   db = Database.open(':memory:'); service = new UpscaleService(db)
 })
-afterEach(async () => { control.releaseCommit?.(); await service.close(); db.close(); await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { vi.restoreAllMocks(); control.releaseCommit?.(); await service.close(); db.close(); await rm(root, { recursive: true, force: true }) })
 const grant = () => service.authorize(input, root)
 async function terminal(id: string): Promise<UpscaleTask> {
   for (let i = 0; i < 500; i++) { const t = service.get(id); if (!['queued', 'running'].includes(t.status)) { await new Promise((r) => setTimeout(r, 5)); return t }; await new Promise((r) => setTimeout(r, 2)) }
@@ -338,4 +345,227 @@ it('serializes cover decoding behind active inference to avoid competing with up
   expect((await terminal(task.id)).status).toBe('cancelled')
   expect(await cover).toEqual(Buffer.from('89504e470d0a1a0a', 'hex'))
   expect(firstFrame).toHaveBeenCalledTimes(1)
+})
+
+describe('repair preview resource ownership', () => {
+  const strokes = [{ radius: 0.04, points: [{ x: 0.5, y: 0.5 }] }]
+  async function imageGrant() {
+    const image = path.join(root, 'preview.png'); await writeFile(image, 'image fixture')
+    return service.authorize(image, root, 'image')
+  }
+  it('rejects a preview while an upscale task owns the resource slot', async () => {
+    const g = await imageGrant(), video = await grant()
+    control.mode = 'wait'
+    const task = await service.create({ grant: video.grant, fileName: 'busy.mp4' })
+    await expect.poll(() => control.inFlight).toBe(1)
+    await expect(service.repairPreview(g.grant, strokes)).rejects.toMatchObject({ statusCode: 429 })
+    expect(repairImagePreview).not.toHaveBeenCalled()
+    service.cancel(task.id); await terminal(task.id)
+  })
+  it('queues but does not start a task during a preview; cancellation releases the slot', async () => {
+    const g = await imageGrant(), abort = new AbortController()
+    vi.mocked(repairImagePreview).mockImplementationOnce(async (_input, _media, _strokes, _ffmpeg, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('任务已取消')), { once: true })
+    }))
+    const preview = service.repairPreview(g.grant, strokes, abort.signal)
+    const rejected = expect(preview).rejects.toThrow('任务已取消')
+    await expect.poll(() => vi.mocked(repairImagePreview).mock.calls.length).toBe(1)
+    const video = await grant(), task = await service.create({ grant: video.grant, fileName: 'after-preview.mp4' })
+    expect(service.get(task.id).status).toBe('queued'); expect(control.inFlight).toBe(0)
+    await expect(service.repairPreview(g.grant, strokes)).rejects.toMatchObject({ statusCode: 429 })
+    abort.abort(); await rejected
+    expect((await terminal(task.id)).status).toBe('succeeded')
+  })
+  it('waits for preview cancellation cleanup when closing the service', async () => {
+    const g = await imageGrant(); let cleaned = false
+    vi.mocked(repairImagePreview).mockImplementationOnce(async (_input, _media, _strokes, _ffmpeg, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => { setTimeout(() => { cleaned = true; reject(new Error('任务已取消')) }, 5) }, { once: true })
+    }))
+    const preview = service.repairPreview(g.grant, strokes)
+    const rejected = expect(preview).rejects.toThrow('任务已取消')
+    await expect.poll(() => vi.mocked(repairImagePreview).mock.calls.length).toBe(1)
+    await service.close(); await rejected; expect(cleaned).toBe(true)
+    await expect(service.repairPreview(g.grant, strokes)).rejects.toMatchObject({ statusCode: 503 })
+  })
+  it('preserves ordinary image upscale when repair dependencies are unavailable', async () => {
+    control.repair = false
+    const g = await imageGrant()
+    await expect(service.repairPreview(g.grant, strokes)).rejects.toThrow('未安装图片修补模型')
+    const task = await service.create({ grant: g.grant, kind: 'image', fileName: 'plain.png' })
+    expect((await terminal(task.id)).status).toBe('succeeded')
+  })
+  it('does not authorize a preview if the source changes while it is being generated', async () => {
+    const g = await imageGrant()
+    vi.mocked(repairImagePreview).mockImplementationOnce(async (input) => { await writeFile(input, 'modified source'); return Buffer.from('PNG') })
+    await expect(service.repairPreview(g.grant, strokes)).rejects.toThrow('发生变化')
+  })
+})
+
+describe('output storage failure containment', () => {
+  it('waits for owned subprocess cleanup instead of removing active work during storage retry', async () => {
+    const g = await grant()
+    let release!: () => void
+    const settling = new Promise<void>((resolve) => { release = resolve })
+    const settle = vi.spyOn(Processes.prototype, 'settle').mockImplementationOnce(() => settling)
+    control.mode = 'enospc'
+    try {
+      const task = await service.create({ grant: g.grant, fileName: 'settling-storage.mp4' })
+      expect((await terminal(task.id)).status).toBe('failed')
+      const record = JSON.parse(String(db.prepare('SELECT snapshot FROM upscale_tasks WHERE id=?').get(task.id)!.snapshot))
+      expect(record.work).toBeTruthy()
+      expect((await service.capabilities(true)).capability.storageReason).toBeUndefined()
+      expect((await stat(record.work)).isDirectory()).toBe(true)
+      const active = (service as unknown as { active: { promise: Promise<void> } }).active
+      release(); await active.promise
+      await expect(stat(record.work)).rejects.toThrow()
+    } finally { release(); settle.mockRestore() }
+  })
+
+  it.each(['enospc', 'message-full', 'quota'])('pauses the queue on output failure (%s) and resumes only after recheck', async (mode) => {
+    const firstGrant = await grant(), secondGrant = await grant()
+    control.mode = mode
+    const first = await service.create({ grant: firstGrant.grant, fileName: 'output-full-first.mp4' })
+    const second = await service.create({ grant: secondGrant.grant, fileName: 'output-full-second.mp4' })
+    expect((await terminal(first.id)).error).toMatchObject({ code: 'STORAGE_FULL' })
+    expect(service.get(second.id).status).toBe('queued')
+    expect((await service.capabilities()).capability.storageReason).toContain('空间不足')
+    await expect(service.authorize(input, root)).rejects.toMatchObject({ code: 'STORAGE_FULL' })
+    await expect.poll(async () => (await readdir(root)).filter((name) => name.startsWith('.mediagrab-upscale-'))).toEqual([])
+    control.fullOutputProbe = true
+    expect((await service.capabilities(true)).capability.storageReason).toContain('空间不足')
+    expect(service.get(second.id).status).toBe('queued')
+    control.fullOutputProbe = false; control.mode = 'success'
+    const space = vi.spyOn(await import('./pipeline.js'), 'checkSpace').mockRejectedValueOnce(Object.assign(new Error('insufficient reserved space'), { code: 'ENOSPC' }))
+    expect((await service.capabilities(true)).capability.storageReason).toContain('空间不足')
+    expect(service.get(second.id).status).toBe('queued')
+    space.mockRestore()
+    expect((await service.capabilities(true)).capability.storageReason).toBeUndefined()
+    expect((await terminal(second.id)).status).toBe('succeeded')
+  })
+})
+
+describe('recovery of an already published candidate', () => {
+  async function seed(mode = 'published', kind: 'image' | 'video' = 'video') {
+    await service.close()
+    const id = randomUUID(), output = path.join(root, `recovered.${kind === 'image' ? 'png' : 'mp4'}`), work = path.join(root, `.mediagrab-upscale-${id}-crash`)
+    const candidate = kind === 'image' ? path.join(work, 'out', 'input.png') : path.join(work, 'candidate.mp4'), bytes = Buffer.from('published candidate'), digest = createHash('sha256').update(bytes).digest('hex')
+    await mkdir(work); if (kind === 'image') await mkdir(path.join(work, 'out')); await writeFile(path.join(work, 'owner.json'), JSON.stringify({ id: mode === 'wrong-owner' ? randomUUID() : id })); await writeFile(candidate, bytes)
+    if (mode === 'unrelated') await writeFile(output, bytes)
+    else if (mode === 'symlink') await symlink(candidate, output)
+    else if (mode !== 'unpublished') await link(candidate, output)
+    if (mode === 'tampered') await writeFile(output, Buffer.from('modified! candidate')) // same size, wrong digest
+    const task = { id, kind, input, output, model: 'realesr-animevideov3-x2', status: 'running', stage: mode === 'wrong-stage' ? 'upscaling' : kind === 'image' ? 'done' : 'validating', completedFrames: 1, media: kind === 'image' ? { width: 400, height: 300, fps: '1/1', frames: 1, duration: 1, audio: false } : { width: 128, height: 72, fps: '24/1', frames: 26, duration: 26 / 24, audio: false }, createdAt: 1, updatedAt: 1 }
+    db.prepare('INSERT INTO upscale_tasks VALUES(?,?,?)').run(id, JSON.stringify({ task, work, pendingOutput: { path: candidate, bytes: bytes.length, sha256: digest }, identity: 'old' }), 1)
+    service = new UpscaleService(db); await service.close()
+    return { id, output, work, digest }
+  }
+  it.each(['image', 'video'] as const)('restores %s success only from matching hard-link evidence after restart', async (kind) => {
+    const { id, output, work, digest } = await seed('published', kind)
+    expect(service.get(id)).toMatchObject({ status: 'succeeded', stage: 'done', result: { path: output, sha256: digest } })
+    expect(service.get(id).error).toBeUndefined()
+    expect(await readFile(output, 'utf8')).toBe('published candidate')
+    await expect(stat(work)).rejects.toThrow()
+    // A second restart reads the saved success, without needing the removed candidate.
+    service = new UpscaleService(db); await service.close()
+    expect(service.get(id).status).toBe('succeeded')
+  })
+  it('rejects nested candidate directories redirected through symlinks and preserves external files', async () => {
+    await service.close()
+    const id = randomUUID(), work = path.join(root, `.mediagrab-upscale-${id}-redirected`), external = path.join(root, 'external'), output = path.join(root, 'redirected.mp4')
+    await mkdir(work); await mkdir(external); await writeFile(path.join(work, 'owner.json'), JSON.stringify({ id }))
+    await writeFile(path.join(external, 'candidate'), 'external original'); await symlink(external, path.join(work, 'out'))
+    const candidate = path.join(work, 'out', 'candidate'); await link(candidate, output)
+    const task = { id, input, output, model: 'realesr-animevideov3-x2', status: 'running', stage: 'validating', completedFrames: 1, createdAt: 1, updatedAt: 1 }
+    const pendingOutput = { path: candidate, bytes: Buffer.byteLength('external original'), sha256: createHash('sha256').update('external original').digest('hex') }
+    db.prepare('INSERT INTO upscale_tasks VALUES(?,?,?)').run(id, JSON.stringify({ task, work, pendingOutput, identity: 'old' }), 1)
+    service = new UpscaleService(db); await service.close()
+    expect(service.get(id).status).toBe('interrupted')
+    expect(await readFile(output, 'utf8')).toBe('external original')
+    expect(await readFile(path.join(external, 'candidate'), 'utf8')).toBe('external original')
+    await expect(stat(work)).rejects.toThrow()
+  })
+  it('rejects a candidate outside the owned work directory without using it for cleanup', async () => {
+    await service.close()
+    const id = randomUUID(), work = path.join(root, `.mediagrab-upscale-${id}-invalid`)
+    await mkdir(work); await writeFile(path.join(work, 'owner.json'), JSON.stringify({ id }))
+    const task = { id, input, output: path.join(root, 'unsafe.mp4'), model: 'realesr-animevideov3-x2', status: 'running', stage: 'validating', completedFrames: 1, createdAt: 1, updatedAt: 1 }
+    db.prepare('INSERT INTO upscale_tasks VALUES(?,?,?)').run(id, JSON.stringify({ task, work, pendingOutput: { path: input, bytes: 8, sha256: 'a'.repeat(64) }, identity: 'old' }), 1)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    service = new UpscaleService(db); await service.close()
+    expect(service.list()).toEqual([])
+    expect(warning).toHaveBeenCalledOnce()
+    expect((await stat(work)).isDirectory()).toBe(true)
+    expect(await readFile(input, 'utf8')).toBe('original')
+  })
+  it.each(['unpublished', 'unrelated', 'symlink', 'tampered', 'wrong-owner', 'wrong-stage'])('refuses unsafe recovery (%s) without deleting the output', async (mode) => {
+    const { id, output, work } = await seed(mode)
+    expect(service.get(id)).toMatchObject({ status: 'interrupted', error: { code: 'INTERRUPTED' } })
+    expect(service.get(id).result).toBeUndefined()
+    if (mode === 'symlink') expect((await lstat(output)).isSymbolicLink()).toBe(true)
+    else if (mode !== 'unpublished') expect((await readFile(output)).length).toBeGreaterThan(0)
+    if (mode === 'wrong-owner') expect((await stat(work)).isDirectory()).toBe(true)
+    else await expect(stat(work)).rejects.toThrow()
+  })
+})
+
+describe('storage failure containment', () => {
+  function failWrites() {
+    const prepare = db.prepare.bind(db)
+    return vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
+      if (sql.startsWith('INSERT INTO upscale_tasks')) throw new Error('SQLITE_FULL: database or disk is full')
+      return prepare(sql)
+    })
+  }
+  it('rejects failed initial persistence without accepting a ghost queued task', async () => {
+    const g = await grant(), spy = failWrites()
+    await expect(service.create({ grant: g.grant, fileName: 'not-accepted.mp4' })).rejects.toMatchObject({ code: 'STORAGE_FULL', statusCode: 503 })
+    expect(service.list()).toEqual([])
+    expect((await service.capabilities()).capability.storageReason).toContain('空间不足')
+    spy.mockRestore()
+    expect((await service.capabilities(true)).capability.storageReason).toBeUndefined()
+  })
+  it('contains background write failures, freezes queued jobs and recovers on explicit retry', async () => {
+    const firstGrant = await grant(), secondGrant = await grant()
+    control.mode = 'wait'
+    const first = await service.create({ grant: firstGrant.grant, fileName: 'first-storage.mp4' })
+    const second = await service.create({ grant: secondGrant.grant, fileName: 'second-storage.mp4' })
+    await expect.poll(() => control.inFlight).toBe(1)
+    const state = (service as unknown as { active: { promise: Promise<void> } }).active
+    const spy = failWrites()
+    service.cancel(first.id)
+    await expect(state.promise).resolves.toBeUndefined()
+    expect(service.get(first.id)).toMatchObject({ status: 'cancelled', storageWarning: expect.stringContaining('空间不足') })
+    expect(service.get(second.id).status).toBe('queued')
+    expect((await service.capabilities(true)).capability.storageReason).toContain('空间不足')
+    spy.mockRestore(); control.mode = 'success'
+    expect((await service.capabilities(true)).capability.storageReason).toBeUndefined()
+    expect((await terminal(second.id)).status).toBe('succeeded')
+    expect(service.get(first.id).storageWarning).toBeUndefined()
+  })
+  it('keeps a committed result successful when terminal-state persistence fails', async () => {
+    const g = await grant(), prepare = db.prepare.bind(db)
+    vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
+      const statement = prepare(sql)
+      if (!sql.startsWith('INSERT INTO upscale_tasks')) return statement
+      return { run: (...args: Parameters<typeof statement.run>) => {
+        if (JSON.parse(String(args[1])).task.status === 'succeeded') throw new Error('SQLITE_FULL: disk full at commit')
+        return statement.run(...args)
+      } } as typeof statement
+    })
+    const task = await service.create({ grant: g.grant, fileName: 'saved-despite-db.mp4' })
+    const done = await terminal(task.id)
+    expect(done).toMatchObject({ status: 'succeeded', result: { path: task.output }, storageWarning: expect.stringContaining('空间不足') })
+    expect(await readFile(task.output, 'utf8')).toContain('unit fixture')
+    await expect(service.close()).resolves.toBeUndefined()
+    vi.restoreAllMocks()
+    service = new UpscaleService(db); await service.close()
+    expect(service.get(task.id)).toMatchObject({ status: 'succeeded', result: { path: task.output } })
+    expect(service.get(task.id).storageWarning).toBeUndefined()
+    expect((await readdir(root)).filter((name) => name.startsWith('.mediagrab-upscale-'))).toEqual([])
+  })
+  it('isolates throwing event listeners from task state and scheduling', async () => {
+    service.subscribe(() => { throw new Error('listener failed') })
+    const g = await grant(), task = await service.create({ grant: g.grant, fileName: 'listener.mp4' })
+    expect((await terminal(task.id)).status).toBe('succeeded')
+  })
 })

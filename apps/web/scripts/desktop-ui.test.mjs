@@ -239,3 +239,41 @@ test('global engine status reports core disconnection without stale readiness', 
   assert.match(html, /超分引擎：引擎不可用/)
   assert.doesNotMatch(html, /upscale-engine-trigger ready/)
 })
+
+test('repair preview tickets reject stale responses after cancellation, replacement, and unmount', async () => {
+  const { RepairPreviewRequests } = await vite.ssrLoadModule('/src/lib/repair-preview.ts')
+  const requests = new RepairPreviewRequests(), first = requests.start()
+  assert.equal(first.current(), true)
+  const second = requests.start()
+  assert.equal(first.signal.aborted, true); assert.equal(first.current(), false); assert.equal(second.current(), true)
+  requests.cancel()
+  assert.equal(second.signal.aborted, true); assert.equal(second.current(), false)
+})
+test('repair errors preserve actionable server diagnostics rather than a generic failure', async () => {
+  const { repairResponseError } = await vite.ssrLoadModule('/src/lib/repair-preview.ts')
+  assert.equal((await repairResponseError(new Response(JSON.stringify({ error: { message: '未安装图片修补模型' } }), { status: 503 }))).message, '未安装图片修补模型')
+  assert.match((await repairResponseError(new Response('unavailable', { status: 429 }))).message, /429/)
+})
+test('repair controls gate unavailable models, freeze the canvas and expose preview cancellation', async () => {
+  const source = await readFile(fileURLToPath(new URL('../src/components/UpscalePage.tsx', import.meta.url)), 'utf8')
+  assert.match(source, /repairUnavailable = cap\?\.repairAvailable !== true/)
+  assert.match(source, /aria-disabled=\{formBusy\}/)
+  assert.match(source, /if \(!preview \|\| formBusy \|\| !sourcePreviewUrl\) return/)
+  assert.match(source, /取消预览/)
+  assert.match(source, /ticket\.current\(\)/)
+  assert.match(source, /重新生成修补预览后再确认/)
+})
+test('a successful output remains visible alongside an explicit persistence warning', () => {
+  const html = render('succeeded', false, { result: { path: fixture.output, bytes: 42, sha256: 'a'.repeat(64) }, storageWarning: '存储空间不足' })
+  assert.match(html, /处理结果已保存，但任务记录尚未落盘/)
+  assert.match(html, /打开成片/)
+})
+
+
+test('upscale task polling exposes live output-storage blocking without auto-retrying', async () => {
+  const source = await readFile(fileURLToPath(new URL('../src/components/UpscalePage.tsx', import.meta.url)), 'utf8')
+  assert.match(source, /setRuntimeStorageReason\(result\.storageReason \?\? ''\)/)
+  assert.match(source, /localStorageReason \|\| runtimeStorageReason/)
+  const poll = source.slice(source.indexOf('const poll = async'), source.indexOf('void poll()'))
+  assert.doesNotMatch(poll, /retryEngine|capability|重新检查/)
+})
