@@ -37,7 +37,8 @@
     "prepare:upscale-tools": "node scripts/prepare-upscale-tools.mjs",
     "verify:upscale-tools": "node scripts/verify-upscale-tools.mjs",
     "test:upscale:offline": "node scripts/test-upscale-relocation.mjs",
-    "test:upscale:real": "node scripts/test-upscale.mjs"
+    "test:upscale:real": "node scripts/test-upscale.mjs",
+    "test:upscale:image:real": "pnpm build:shared && pnpm build:server && node scripts/test-upscale-image.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

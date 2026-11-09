@@ -5,10 +5,14 @@ import { createHash } from 'node:crypto'
 import { createReadStream, readdirSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { Database } from '../apps/server/dist/store/db.js'
-import { UpscaleService } from '../apps/server/dist/upscale/service.js'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const runtime = process.env.MEDIAGRAB_UPSCALE_RUNTIME?.trim()
+if (runtime && !path.isAbsolute(runtime)) throw new Error('MEDIAGRAB_UPSCALE_RUNTIME must be absolute')
+const load = (file) => runtime
+  ? import(pathToFileURL(path.join(runtime, 'dist', file)).href)
+  : import(pathToFileURL(path.join(root, 'apps/server/dist', file)).href)
+const [{ Database }, { UpscaleService }] = await Promise.all([load('store/db.js'), load('upscale/service.js')])
 // Fixture generation may use a developer FFmpeg; processing must use the pinned tools.
 const ffmpeg = path.join(process.env.MEDIAGRAB_UPSCALE_DIR ?? '', 'ffmpeg')
 if (!path.isAbsolute(ffmpeg)) throw new Error('Set MEDIAGRAB_UPSCALE_DIR to explicit prepared dependencies')
@@ -21,7 +25,7 @@ await mkdir(outputRoot, { recursive: true })
 const dir = await mkdtemp(path.join(outputRoot, 'run-'))
 const db = Database.open(path.join(dir, 'test.db'))
 const service = new UpscaleService(db)
-const report = { directory: dir, date: new Date().toISOString(), platform: `${process.platform}-${process.arch}`, chip: execFileSync('/usr/sbin/sysctl', ['-n', 'machdep.cpu.brand_string'], { encoding: 'utf8' }).trim(), memoryBytes: Number(execFileSync('/usr/sbin/sysctl', ['-n', 'hw.memsize'], { encoding: 'utf8' })), settings: { batch: 12, tile: 256, threads: '1:1:1', encoderThreads: 4, decoderThreads: 2, lookahead: 8, maxrate: '80M' }, idleDriverRssKiB: process.memoryUsage().rss / 1024, cases: [], rejectedInputs: [] }
+const report = { directory: dir, date: new Date().toISOString(), platform: `${process.platform}-${process.arch}`, runtime: runtime ?? 'repository build', chip: execFileSync('/usr/sbin/sysctl', ['-n', 'machdep.cpu.brand_string'], { encoding: 'utf8' }).trim(), memoryBytes: Number(execFileSync('/usr/sbin/sysctl', ['-n', 'hw.memsize'], { encoding: 'utf8' })), settings: { batch: 12, tile: 256, threads: '1:1:1', encoderThreads: 4, decoderThreads: 2, lookahead: 8, maxrate: '80M' }, idleDriverRssKiB: process.memoryUsage().rss / 1024, cases: [], rejectedInputs: [] }
 const hash = async (file) => { const h = createHash('sha256'); for await (const d of createReadStream(file)) h.update(d); return h.digest('hex') }
 function snapshot(peaks) {
   const rows = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,rss=,comm='], { encoding: 'utf8' }).trim().split('\n').map((s) => { const [, pid, ppid, rss, command] = s.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/) ?? []; return { pid: Number(pid), ppid: Number(ppid), rss: Number(rss), command } })
@@ -88,10 +92,13 @@ try {
   report.capability = (await service.capabilities()).capability
   assert.equal(report.capability.available, true, report.capability.reason)
   const selectedCases = new Set((process.env.UPSCALER_TEST_CASES ?? 'synthetic,unsupported,cancel,reference').split(','))
-  if (selectedCases.has('synthetic')) for (const [audio, fps] of [[false, '24'], [true, '24000/1001']]) {
-    const input = path.join(dir, audio ? '-中文 AAC "样本; .mp4' : '中文 无音轨.mp4')
-    execFileSync(fixtureFfmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=128x72:rate=${fps}`, ...(audio ? ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000'] : []), '-frames:v', '26', ...(audio ? ['-t', String(26 / (24000 / 1001)), '-c:a', 'aac'] : ['-an']), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-bf', '0', input])
-    const out = await execute(input, audio ? 'aac-2x.mp4' : 'silent-2x.mp4')
+  const syntheticCases = [[false, '24', 26], [true, '24000/1001', 26]]
+  if (process.env.UPSCALER_LONG_VIDEO === '1') syntheticCases.push([false, '1', 600])
+  if (selectedCases.has('synthetic')) for (const [audio, fps, frames] of syntheticCases) {
+    const long = frames === 600
+    const input = path.join(dir, audio ? '-中文 AAC "样本; .mp4' : long ? 'synthetic-600s-1fps.mp4' : '中文 无音轨.mp4')
+    execFileSync(fixtureFfmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=128x72:rate=${fps}`, ...(audio ? ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000'] : []), '-frames:v', String(frames), ...(audio ? ['-t', String(frames / (24000 / 1001)), '-c:a', 'aac'] : ['-an']), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-bf', '0', input])
+    const out = await execute(input, audio ? 'aac-2x.mp4' : long ? 'synthetic-600s-1fps-2x.mp4' : 'silent-2x.mp4')
     if (audio) assert.match(out.result.audioSha256, /^SHA256=/)
     const g = await service.authorize(input, dir)
     await assert.rejects(service.create({ grant: g.grant, fileName: path.basename(out.output) }), /已存在/)
