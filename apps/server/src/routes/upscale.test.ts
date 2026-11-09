@@ -12,12 +12,28 @@ describe('upscale file access is desktop-authenticated', () => {
     for (const coreToken of [undefined, token]) {
       const app = await buildApp({ config: defaultAppConfig(), dbPath: ':memory:', logger: false, coreToken })
       try {
-        for (const url of ['/api/upscale/tasks', '/api/upscale/capability', '/api/upscale/grants', `/api/upscale/tasks/${randomUUID()}/thumbnail`]) {
-          expect((await app.inject({ method: url.endsWith('grants') ? 'POST' : 'GET', url })).statusCode).toBe(403)
+        for (const [url, method] of [['/api/upscale/tasks', 'GET'], ['/api/upscale/capability', 'GET'], ['/api/upscale/grants', 'POST'], [`/api/upscale/tasks/${randomUUID()}/thumbnail`, 'GET'], [`/api/upscale/grants/${randomUUID()}/thumbnail`, 'GET'], [`/api/upscale/grants/${randomUUID()}/repair-preview`, 'POST']] as const) {
+          expect((await app.inject({ method, url })).statusCode).toBe(403)
         }
         expect((await app.inject({ method: 'DELETE', url: `/api/upscale/tasks/${randomUUID()}` })).statusCode).toBe(403)
       } finally { await app.close() }
     }
+  })
+  it('passes image mode through after verifying native file and directory proofs', async () => {
+    const services = createServices({ config: defaultAppConfig(), dbPath: ':memory:' })
+    const authorize = vi.spyOn(services.upscale, 'authorize').mockResolvedValue({
+      grant: randomUUID(), kind: 'image', media: { width: 320, height: 240, fps: '1/1', frames: 1, duration: 1, audio: false },
+    })
+    const app = await buildApp({ config: defaultAppConfig(), services, logger: false, coreToken: token })
+    const headers = { 'x-mediagrab-token': token, origin: 'tauri://localhost' }
+    const input = { path: '/private/photo.jpg', proof: coreProof(token, 'upscale-input\0/private/photo.jpg') }
+    const directory = { path: '/private', proof: coreProof(token, 'upscale-directory\0/private') }
+    try {
+      const response = await app.inject({ method: 'POST', url: '/api/upscale/grants', headers, payload: { input, directory, kind: 'image' } })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ kind: 'image', media: { frames: 1 } })
+      expect(authorize).toHaveBeenCalledWith(input.path, directory.path, 'image')
+    } finally { await app.close() }
   })
   it('requires native selection signatures, rejects path-only payloads, and keeps download APIs working', async () => {
     const app = await buildApp({ config: defaultAppConfig(), dbPath: ':memory:', logger: false, coreToken: token })

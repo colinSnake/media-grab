@@ -2,6 +2,11 @@
 .upscale-content { width: 100%; min-width: 0; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: 15px; }
 .upscale-form { min-width: 0; min-height: 0; overflow: auto; padding: 17px 18px 14px; border-radius: 8px; }
 .upscale-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--line-soft); }
+.upscale-kind-switch { display: flex; flex: 0 0 auto; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--input-bg); }
+.upscale-kind-switch button { min-height: 26px; padding: 0 12px; border: 0; border-radius: 3px; background: transparent; color: var(--text-muted); cursor: pointer; font: 600 10px/1 'DM Sans', sans-serif; }
+.upscale-kind-switch button.selected { background: var(--control-selected); color: var(--icon-accent); }
+.upscale-kind-switch button:disabled { cursor: not-allowed; opacity: .55; }
+.upscale-kind-switch button:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
 .upscale-model > svg:first-child { width: 17px; height: 17px; flex: 0 0 auto; }
 .upscale-model > span { min-width: 0; display: grid; gap: 2px; }
 .upscale-capability { display: flex; align-items: center; gap: 8px; margin: 9px 0; color: var(--red); font-size: 11px; line-height: 1.5; }
@@ -43,6 +48,21 @@
 .upscale-preview > div { min-width: 0; display: grid; gap: 3px; }
 .upscale-preview strong { font-size: 10px; }
 .upscale-preview span { color: var(--text-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.upscale-repair-control { display: grid; gap: 9px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.upscale-repair-toggle { width: fit-content; display: inline-flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 11px; font-weight: 600; }
+.upscale-repair-toggle input { width: 15px; height: 15px; margin: 0; accent-color: var(--purple); }
+.upscale-repair-toolbar { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 10px; }
+.upscale-repair-toolbar input[type='range'] { width: 120px; accent-color: var(--purple); }
+.upscale-repair-toolbar > .icon-button { margin-left: auto; }
+.upscale-repair-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.upscale-repair-preview { min-width: 0; display: grid; grid-template-rows: auto minmax(150px, 260px); gap: 5px; }
+.upscale-repair-preview > span { color: var(--text-subtle); font-size: 10px; }
+.upscale-repair-preview > canvas, .upscale-repair-preview > img, .upscale-repair-empty { width: 100%; height: 100%; max-height: 260px; object-fit: contain; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-raised); }
+.upscale-repair-preview > canvas { cursor: crosshair; touch-action: none; }
+.upscale-repair-empty { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 12px; color: var(--text-muted); font-size: 10px; text-align: center; }
+.upscale-repair-empty svg { width: 14px; height: 14px; }
+.upscale-repair-actions { display: flex; align-items: center; gap: 10px; }
+.upscale-repair-actions > span { color: var(--text-subtle); font-size: 10px; }
 .upscale-error { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; color: var(--red); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .upscale-error svg { width: 14px; height: 14px; flex: 0 0 auto; }
 .upscale-jobs { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 0; overflow: hidden; padding: 13px; border-radius: 8px; container: upscale-queue / inline-size; }
@@ -132,6 +152,8 @@
   .upscale-picker { width: 100%; }
   .upscale-picker > span { flex: 1; }
   .upscale-form-footer { align-items: stretch; flex-direction: column; gap: 10px; }
+  .upscale-repair-preview-grid { grid-template-columns: minmax(0, 1fr); }
+  .upscale-repair-preview { grid-template-rows: auto minmax(160px, 240px); }
   .upscale-actions { justify-content: flex-end; }
 }
 

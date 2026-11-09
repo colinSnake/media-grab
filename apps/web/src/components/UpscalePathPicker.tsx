@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy, FolderOpen, AlertTriangle } from 'lucide-react'
 
-export function UpscalePathPicker({ kind, path, disabled, onChoose }: {
+export function UpscalePathPicker({ kind, mediaKind = 'video', path, disabled, onChoose }: {
   kind: 'input' | 'directory'
+  mediaKind?: 'video' | 'image'
   path?: string
   disabled: boolean
   onChoose: () => void
 }) {
-  const label = kind === 'input' ? '输入视频' : '输出目录'
+  const label = kind === 'input' ? mediaKind === 'image' ? '输入图片' : '输入视频' : '输出目录'
   const [feedback, setFeedback] = useState<{ path: string; status: 'copied' | 'failed' } | null>(null)
   const status = feedback?.path === path ? feedback?.status : undefined
   useEffect(() => {
@@ -41,8 +42,8 @@ export function UpscalePathPicker({ kind, path, disabled, onChoose }: {
   return <div className="upscale-field">
     <span className="upscale-field-label" id={`upscale-${kind}-label`}>{label}</span>
     <div className="upscale-picker" role="group" aria-labelledby={`upscale-${kind}-label`}>
-      <button className="upscale-button secondary" type="button" disabled={disabled} onClick={onChoose}><FolderOpen />{kind === 'input' ? '选择 MP4' : '选择目录'}</button>
-      <span className={path ? 'upscale-path-selected' : undefined} aria-live="polite">{path ? '已选择' : kind === 'input' ? '尚未选择文件' : '尚未选择目录'}</span>
+      <button className="upscale-button secondary" type="button" disabled={disabled} onClick={onChoose}><FolderOpen />{kind === 'input' ? mediaKind === 'image' ? '选择图片' : '选择 MP4' : '选择目录'}</button>
+      <span className={path ? 'upscale-path-selected' : undefined} aria-live="polite">{path ? '已选择' : kind === 'input' ? mediaKind === 'image' ? '尚未选择图片' : '尚未选择视频' : '尚未选择目录'}</span>
       <button className={`icon-button upscale-copy-button ${status ?? ''}`} type="button" disabled={!path} data-tooltip={copyLabel} aria-label={copyLabel} onClick={() => void copy()}>
         {status === 'copied' ? <Check /> : status === 'failed' ? <AlertTriangle /> : <Copy />}
       </button>

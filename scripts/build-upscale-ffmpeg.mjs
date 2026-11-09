@@ -57,9 +57,9 @@ async function main() {
       '--cc=/usr/bin/clang', `--pkg-config=${path.join(pkgconf, 'pkgconf')}`, '--pkg-config-flags=--static',
       '--disable-autodetect', '--disable-everything', '--disable-shared', '--enable-static', '--disable-doc', '--disable-network', '--disable-debug',
       '--enable-gpl', '--enable-libx264', '--enable-zlib', '--enable-ffmpeg', '--enable-ffprobe', '--disable-ffplay',
-      '--enable-protocol=file,pipe', '--enable-demuxer=mov,image2pipe', '--enable-muxer=mp4,image2pipe,null,hash',
-      '--enable-decoder=h264,aac,png', '--enable-encoder=libx264,png,wrapped_avframe,pcm_s16le', '--enable-parser=h264,aac,png',
-      '--enable-filter=scale,format,setsar,aformat,aresample,null,anull', '--enable-bsf=aac_adtstoasc',
+      '--enable-protocol=file,pipe', '--enable-demuxer=mov,image2,image2pipe,rawvideo', '--enable-muxer=mp4,image2,image2pipe,rawvideo,null,hash',
+      '--enable-decoder=h264,aac,png,mjpeg,rawvideo', '--enable-encoder=libx264,png,wrapped_avframe,pcm_s16le,rawvideo', '--enable-parser=h264,aac,png,mjpeg',
+      '--enable-filter=scale,pad,crop,format,setsar,aformat,aresample,null,anull', '--enable-bsf=aac_adtstoasc',
     ], ffmpeg)
     run('/usr/bin/make', [`-j${jobs}`, 'ffmpeg', 'ffprobe'], ffmpeg)
     for (const name of ['ffmpeg', 'ffprobe']) {

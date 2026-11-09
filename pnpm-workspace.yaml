@@ -9,3 +9,4 @@ packages:
 # 注意：将来引入原生依赖（如 better-sqlite3）时，需要在此追加对应条目。
 allowBuilds:
   esbuild: true
+  onnxruntime-node: true

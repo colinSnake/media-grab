@@ -491,7 +491,7 @@ function App() {
   const selectedGenericStream = genericParsed?.streams.find((stream) => stream.id === selectedStreamId)
   const hasGenericAudio = selectedGenericStream?.combined === true || genericParsed?.streams.some((stream) => stream.kind === 'audio' && stream.available) === true
   const canEnqueue = parsed !== null || selectedGenericStream?.available === true && (selectedGenericStream.kind === 'image' || mode === 'video' || hasGenericAudio)
-  const viewTitle = activeView === 'upscale' ? '视频超分' : activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
+  const viewTitle = activeView === 'upscale' ? '媒体超分' : activeView === 'new' ? '新建任务' : activeView === 'queue' ? '下载队列' : '历史记录'
 
   useEffect(() => {
     if (chosenQuality !== undefined && selectedQuality !== chosenQuality.qn) setSelectedQuality(chosenQuality.qn)
@@ -820,7 +820,7 @@ function App() {
 
         <div className="sidebar-label sources-label">媒体工具</div>
         <nav className="side-nav" aria-label="媒体工具">
-          <button className={`nav-item tooltip-target ${activeView === 'upscale' ? 'active' : ''}`} type="button" data-tooltip="视频超分" onClick={() => setActiveView('upscale')}><WandSparkles /><span>视频超分</span></button>
+          <button className={`nav-item tooltip-target ${activeView === 'upscale' ? 'active' : ''}`} type="button" data-tooltip="媒体超分" onClick={() => setActiveView('upscale')}><WandSparkles /><span>媒体超分</span></button>
         </nav>
 
         <div className="sidebar-label sources-label">平台来源</div>

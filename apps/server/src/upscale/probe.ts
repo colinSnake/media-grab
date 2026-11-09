@@ -18,6 +18,24 @@ export function rate(value: string): number {
   const [n, d = '1'] = value.split('/')
   return Number(n) / Number(d)
 }
+export function supportedImage(probe: Probe): UpscaleMedia {
+  const videos = probe.streams.filter((s) => s.codec_type === 'video')
+  if (videos.length !== 1 || probe.streams.length !== 1 || (probe.chapters?.length ?? 0) > 0) throw new Error('仅支持单张 PNG 或 JPEG 图片')
+  const image = videos[0]!
+  if (!['png', 'mjpeg'].includes(image.codec_name ?? '')) throw new Error('图片格式仅支持 PNG、JPG 或 JPEG')
+  const width = image.width ?? 0, height = image.height ?? 0
+  if (width < 16 || height < 16 || width > limits.maxImageSide || height > limits.maxImageSide || width * height > limits.maxImagePixels) throw new Error('图片尺寸须为 16×16 至 4096×4096，且不超过 800 万像素')
+  const frames = Number(image.nb_frames)
+  if (Number.isFinite(frames) && frames > 1) throw new Error('暂不支持动图，请先导出为单帧 PNG 或 JPEG')
+  if (image.side_data_list?.some((data) => data.side_data_type === 'Display Matrix' || (data.rotation ?? 0) !== 0)) throw new Error('请先校正图片方向并另存后再超分')
+  return { width, height, fps: '1/1', frames: 1, duration: 1, audio: false }
+}
+
+export async function inspectImage(file: string, tools: Tools, processes: Processes): Promise<Probe> {
+  const json = await processes.run(tools.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file', '-f', 'image2', '-pattern_type', 'none', '-show_streams', '-show_format', '-of', 'json', file], 1024 * 1024)
+  return JSON.parse(json) as Probe
+}
+
 export function supportedMedia(probe: Probe): UpscaleMedia {
   const videos = probe.streams.filter((s) => s.codec_type === 'video')
   const audios = probe.streams.filter((s) => s.codec_type === 'audio')

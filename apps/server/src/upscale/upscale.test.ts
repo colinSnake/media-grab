@@ -6,7 +6,8 @@ import { mkdtemp, readFile, writeFile, symlink, chmod, rm, realpath } from 'node
 import os from 'node:os'
 import path from 'node:path'
 import { upscaleRecordSchema } from './record.js'
-import { inspect, sameAudioTimeline, supportedMedia, timeline } from './probe.js'
+import { inspect, sameAudioTimeline, supportedImage, supportedMedia, timeline } from './probe.js'
+import { pngSize } from './image-pipeline.js'
 import { pngFrames, requiredSpace, ensureSpace } from './pipeline.js'
 import { Processes } from './process.js'
 import type { Tools } from './tools.js'
@@ -16,6 +17,31 @@ import { upscaleCreateSchema } from '@mediagrab/shared'
 function probe() { return { streams: [{ codec_type: 'video', codec_name: 'h264', pix_fmt: 'yuv420p', width: 128, height: 72, r_frame_rate: '24/1', avg_frame_rate: '24/1', nb_read_frames: '26', duration: '1.083333', start_time: '0', color_transfer: 'bt709', color_primaries: 'bt709', color_space: 'bt709', sample_aspect_ratio: '1:1' }], format: { duration: '1.083333' } } }
 const temporary: string[] = []
 afterEach(async () => { await Promise.all(temporary.splice(0).map((p) => rm(p, { recursive: true, force: true }))) })
+describe('image upscale input boundaries', () => {
+  const imageProbe = (change: Record<string, unknown> = {}) => ({
+    streams: [{ codec_type: 'video', codec_name: 'png', width: 1200, height: 800, ...change }],
+    format: { format_name: 'image2' },
+  })
+  it('accepts a single PNG or JPEG within the pixel limits', () => {
+    expect(supportedImage(imageProbe())).toMatchObject({ width: 1200, height: 800, frames: 1, fps: '1/1', audio: false })
+    expect(supportedImage(imageProbe({ codec_name: 'mjpeg' })).width).toBe(1200)
+  })
+  it.each([
+    ['unsupported codec', { codec_name: 'webp' }], ['too many frames', { nb_frames: '2' }],
+    ['oversized image', { width: 4096, height: 4096 }], ['orientation metadata', { side_data_list: [{ rotation: 90 }] }],
+  ])('rejects %s', (_, change) => { expect(() => supportedImage(imageProbe(change))).toThrow() })
+  it('rejects multiple streams and non-image sources', () => {
+    expect(() => supportedImage({ ...imageProbe(), streams: [...imageProbe().streams, { codec_type: 'audio' }] })).toThrow()
+  })
+  it('reads PNG dimensions from the IHDR header', () => {
+    const header = Buffer.alloc(24)
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(header)
+    header.write('IHDR', 12, 'ascii'); header.writeUInt32BE(640, 16); header.writeUInt32BE(360, 20)
+    expect(pngSize(header)).toEqual({ width: 640, height: 360 })
+    expect(() => pngSize(Buffer.alloc(24))).toThrow('PNG')
+  })
+})
+
 describe('upscale input boundaries', () => {
   it('accepts CFR SDR and preserves the rational rate', () => { expect(supportedMedia(probe()).frames).toBe(26) })
   it.each([
@@ -53,6 +79,16 @@ describe('upscale input boundaries', () => {
   })
   it('allows Chinese, quotes, spaces and a leading dash in an output basename', () => {
     expect(upscaleCreateSchema.safeParse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', fileName: '-中文 "片源; 2x.mp4' }).success).toBe(true)
+  })
+  it('accepts selected PNG/JPEG images but keeps video inputs MP4-only', async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-images-'))); temporary.push(root)
+    for (const extension of ['png', 'jpg', 'jpeg']) {
+      const file = path.join(root, `image.${extension}`); await writeFile(file, 'source')
+      expect(await inputIdentity(file, 'image')).toEqual(expect.any(String))
+      await expect(inputIdentity(file)).rejects.toThrow('MP4')
+    }
+    const video = path.join(root, 'video.mp4'); await writeFile(video, 'source')
+    await expect(inputIdentity(video, 'image')).rejects.toThrow('PNG/JPG/JPEG')
   })
   it('rejects symlinks, unreadable files, directories, and detects source replacement', async () => {
     const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-files-'))); temporary.push(root)

@@ -41,7 +41,8 @@
     ],
     "resources": [
       "resources/media-tools",
-      "resources/core"
+      "resources/core",
+      "resources/inpainting"
     ],
     "shortDescription": "Local multi-platform media workspace",
     "longDescription": "Parse and manage local media downloads from supported platforms.",

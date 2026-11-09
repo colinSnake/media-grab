@@ -2,13 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-const control = vi.hoisted(() => ({ arch: 'arm64' }))
+const control = vi.hoisted(() => ({ arch: 'arm64', image: true }))
 vi.mock('./process.js', () => ({ Processes: class {
-  async run(file: string, args: string[]): Promise<string> { if (args.some((a) => ['-encoders', '-decoders', '-demuxers'].includes(a))) return 'libx264 png h264 aac mov image2pipe'; return file === '/usr/bin/lipo' ? control.arch : 'fixture-version' }
+  async run(file: string, args: string[]): Promise<string> {
+    if (args.includes('-decoders')) return control.image ? 'h264 aac png mjpeg' : 'h264 aac png'
+    if (args.includes('-demuxers')) return control.image ? 'D mov D image2 D image2pipe D rawvideo' : 'D mov D image2pipe'
+    if (args.includes('-muxers')) return control.image ? 'E mp4 E image2 E image2pipe E rawvideo' : 'E mp4 E image2pipe'
+    if (args.includes('-encoders')) return 'libx264 png'
+    return file === '/usr/bin/lipo' ? control.arch : 'fixture-version'
+  }
 } }))
 import { capability, model, sha256 } from './tools.js'
 let root: string
-beforeEach(async () => { root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-tools-'))); vi.stubEnv('MEDIAGRAB_UPSCALE_DIR', root); control.arch = 'arm64' })
+beforeEach(async () => { root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'upscale-tools-'))); vi.stubEnv('MEDIAGRAB_UPSCALE_DIR', root); control.arch = 'arm64'; control.image = true })
 afterEach(async () => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }) })
 async function fixture() {
   await mkdir(path.join(root, 'models'))
@@ -27,6 +33,7 @@ describe.runIf(process.platform === 'darwin' && process.arch === 'arm64')('depen
     expect(result.reason).not.toContain('ENOENT')
   })
   it('reports missing dependencies instead of fabricating availability', async () => { expect((await capability()).capability.available).toBe(false) })
+  it('keeps video capability when an older runtime lacks image formats', async () => { await fixture(); control.image = false; expect((await capability()).capability).toMatchObject({ available: true, imageAvailable: false }) })
   it('rejects mismatched target/model, missing weights, invalid hashes and architecture', async () => {
     await fixture(); expect((await capability()).capability.available).toBe(true)
     control.arch = 'x86_64'; expect((await capability()).capability.reason).toContain('arm64'); control.arch = 'arm64'

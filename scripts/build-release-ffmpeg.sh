@@ -56,8 +56,8 @@ fi
     --disable-debug --disable-doc --disable-ffplay --disable-ffprobe \
     --disable-network --disable-everything --disable-gpl --disable-nonfree \
     --enable-ffmpeg --enable-avcodec --enable-avformat --enable-avfilter --enable-swresample \
-    --enable-protocol=file --enable-demuxer=mov,matroska,ogg,mp3,pcm_s16le \
-    --enable-muxer=mp4,ipod,matroska,webm,mp3 \
+    --enable-protocol=file --enable-demuxer=mov,matroska,ogg,mp3,pcm_s16le,rawvideo \
+    --enable-muxer=mp4,ipod,matroska,webm,mp3,rawvideo \
     --enable-decoder=aac,alac,flac,mp3,opus,vorbis,pcm_s16le,pcm_s24le,pcm_s32le,h264,hevc,vp8,vp9,av1 \
     --enable-encoder=libmp3lame --enable-libmp3lame --enable-filter=aresample,format \
     --enable-parser=aac,ac3,flac,h264,hevc,mpegaudio,opus,vorbis,vp3,vp8,vp9,av1 \

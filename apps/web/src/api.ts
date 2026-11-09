@@ -118,11 +118,11 @@ export async function getTaskEventConnection(): Promise<{ url: string; protocols
   return { url: url.toString(), protocols: token ? [`mg-${token}`] : undefined }
 }
 
-export async function fetchWithCoreAuth(path: string, signal?: AbortSignal): Promise<Response> {
+export async function fetchWithCoreAuth(path: string, signal?: AbortSignal, init?: RequestInit): Promise<Response> {
   const token = await getCoreToken()
-  const headers = new Headers()
+  const headers = new Headers(init?.headers)
   if (token) headers.set('X-Mediagrab-Token', token)
-  return fetch(apiUrl(path), { headers, signal })
+  return fetch(apiUrl(path), { ...init, headers, signal })
 }
 
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {

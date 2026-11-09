@@ -23,11 +23,16 @@ test('ordinary desktop build refreshes and verifies its packaged server runtime'
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
   const build = manifest.scripts['build:desktop']
+  const release = manifest.scripts['build:desktop:release']
+  assert.match(build, /stage-test-inpainting-model\.mjs/)
   assert.match(build, /pnpm prepare:desktop-runtime/)
   assert.match(build, /pnpm verify:desktop-runtime/)
   assert.match(build, /create-macos-dmg\.mjs/)
-  assert.ok(build.indexOf('pnpm prepare:desktop-runtime') < build.indexOf('tauri build --bundles app'))
+  assert.ok(build.indexOf('pnpm prepare:desktop-runtime') < build.indexOf('verify-upscale-tools.mjs'))
+  assert.ok(build.indexOf('verify-upscale-tools.mjs') < build.indexOf('tauri build --bundles app'))
   assert.ok(build.indexOf('pnpm verify:desktop-runtime') < build.indexOf('tauri build --bundles app'))
+  assert.match(release, /verify-no-test-inpainting-model\.mjs/)
+  assert.ok(release.indexOf('verify-no-test-inpainting-model.mjs') < release.indexOf('pnpm --filter'))
 })
 
 test('development upscale opt-in cannot be combined with release verification', async () => {

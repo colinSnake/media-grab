@@ -151,15 +151,20 @@ async fn choose_upscale_path(
     app: AppHandle,
     kind: String,
 ) -> Result<Option<UpscaleSelection>, String> {
-    if kind != "input" && kind != "directory" {
+    if kind != "input" && kind != "image" && kind != "directory" {
         return Err("文件选择类型不合法".to_owned());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = app.dialog().file();
         let selected = if kind == "input" {
             dialog
-                .set_title("选择本地动漫视频（MP4）")
+                .set_title("选择本地视频（MP4）")
                 .add_filter("MP4 视频", &["mp4"])
+                .blocking_pick_file()
+        } else if kind == "image" {
+            dialog
+                .set_title("选择本地图片（PNG/JPG/JPEG）")
+                .add_filter("图片", &["png", "jpg", "jpeg"])
                 .blocking_pick_file()
         } else {
             dialog.set_title("选择超分输出目录").blocking_pick_folder()
@@ -167,7 +172,15 @@ async fn choose_upscale_path(
         selected
             .map(|file| {
                 let path = file.into_path().map_err(|error| error.to_string())?;
-                signed_upscale_selection(&app, &kind, path)
+                signed_upscale_selection(
+                    &app,
+                    if kind == "directory" {
+                        "directory"
+                    } else {
+                        "input"
+                    },
+                    path,
+                )
             })
             .transpose()
     })
@@ -425,6 +438,7 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
     startup_diagnostic(format!("data_dir={}", data_dir.display()));
     std::fs::create_dir_all(&data_dir).map_err(|error| format!("无法创建应用数据目录: {error}"))?;
     let tools_dir = resource_path(app, "resources/media-tools")?;
+    let inpaint_model = resource_path(app, "resources/inpainting/lama.onnx")?;
     let log_dir = data_dir.join("logs");
     std::fs::create_dir_all(&log_dir).map_err(|error| format!("无法创建核心日志目录: {error}"))?;
     let log_file = std::fs::OpenOptions::new()
@@ -456,6 +470,7 @@ fn start_core(app: &AppHandle, token: &str) -> Result<Option<Child>, String> {
         .env("DATA_DIR", &data_dir)
         .env("WEB_DIST", core_dir.join("web"))
         .env("MEDIA_TOOLS_DIR", tools_dir)
+        .env("MEDIAGRAB_INPAINT_MODEL", inpaint_model)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(error_file));

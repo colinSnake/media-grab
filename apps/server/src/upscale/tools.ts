@@ -6,7 +6,7 @@ import type { UpscaleCapability } from '@mediagrab/shared'
 import { resolveBundledTool } from '../media-tools.js'
 import { Processes } from './process.js'
 
-export const limits = { maxSeconds: 600, maxFrames: 36000, maxPixels: 1920 * 1080, batch: 12, tile: 256 }
+export const limits = { maxSeconds: 600, maxFrames: 36000, maxPixels: 1920 * 1080, maxImagePixels: 8_000_000, maxImageSide: 4096, batch: 12, tile: 256 }
 export const model = 'realesr-animevideov3-x2' as const
 export interface Tools { ffmpeg: string; ffprobe: string; engine: string; models: string }
 export async function sha256(file: string): Promise<string> {
@@ -55,7 +55,9 @@ export async function capability(signal = new AbortController().signal): Promise
     const encoders = await processes.run(ffmpeg, ['-hide_banner', '-encoders'])
     const decoders = await processes.run(ffmpeg, ['-hide_banner', '-decoders'])
     const demuxers = await processes.run(ffmpeg, ['-hide_banner', '-demuxers'])
+    const muxers = await processes.run(ffmpeg, ['-hide_banner', '-muxers'])
     if (!/\blibx264\b/.test(encoders) || !/\bpng\b/.test(encoders) || !/\bh264\b/.test(decoders) || !/\baac\b/.test(decoders) || !/\bpng\b/.test(decoders) || !/\bmov\b/.test(demuxers) || !/\bimage2pipe\b/.test(demuxers)) throw new Error('FFmpeg 缺少 H.264/AAC/PNG/MP4/image2pipe 处理能力')
-    return { capability: { ...base, available: true, tools: details }, tools: { ffmpeg: path.join(root, 'ffmpeg'), ffprobe: path.join(root, 'ffprobe'), engine: path.join(root, 'realesrgan-ncnn-vulkan'), models: path.join(root, 'models') } }
+    const imageAvailable = /\bmjpeg\b/.test(decoders) && /\bimage2\b/.test(demuxers) && /\bimage2\b/.test(muxers) && /^\s*D[^\n]*\brawvideo\b/m.test(demuxers) && /^\s*E[^\n]*\brawvideo\b/m.test(muxers)
+    return { capability: { ...base, available: true, imageAvailable, ...(imageAvailable ? {} : { imageReason: '当前本地 FFmpeg 缺少图片超分/修补所需能力，请更新超分依赖后重试。' }), tools: details }, tools: { ffmpeg: path.join(root, 'ffmpeg'), ffprobe: path.join(root, 'ffprobe'), engine: path.join(root, 'realesrgan-ncnn-vulkan'), models: path.join(root, 'models') } }
   } catch (e) { return { capability: { ...base, reason: e instanceof Error ? e.message : String(e) } } }
 }

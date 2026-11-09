@@ -59,7 +59,7 @@ for (const name of forbidden) {
 }
 
 const runtimeBytes = await directorySize(runtimeDir)
-const runtimeLimit = Number(process.env.MEDIA_GRAB_RUNTIME_LIMIT_MB ?? 180) * 1024 * 1024
+const runtimeLimit = Number(process.env.MEDIA_GRAB_RUNTIME_LIMIT_MB ?? 260) * 1024 * 1024
 if (runtimeBytes > runtimeLimit) {
   throw new Error(`Node core 体积 ${(runtimeBytes / 1024 / 1024).toFixed(1)} MiB 超过上限 ${(runtimeLimit / 1024 / 1024).toFixed(0)} MiB`)
 }

@@ -41,7 +41,7 @@ export async function videoHash(file: string, signal?: AbortSignal): Promise<str
 }
 export function requiredSpace(media: UpscaleMedia, sourceBytes: number): number {
   // 12 input/output PNGs + decoder/encoder buffers; conservative 2 candidates at 80 Mbps.
-  return Math.ceil(512 * 1024 ** 2 + limits.batch * media.width * media.height * 5 * 4 + Math.max(sourceBytes * 4, media.duration * 10_000_000) * 2)
+  return Math.ceil(512 * 1024 ** 2 + Math.min(limits.batch, media.frames) * media.width * media.height * 5 * 4 + Math.max(sourceBytes * 4, media.duration * 10_000_000) * 2)
 }
 export function ensureSpace(availableBytes: number, media: UpscaleMedia, sourceBytes: number): void {
   if (!Number.isFinite(availableBytes) || availableBytes < requiredSpace(media, sourceBytes)) throw new Error('输出卷可用空间不足（包括候选视频和有界临时帧）')

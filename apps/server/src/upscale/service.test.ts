@@ -7,8 +7,15 @@ import { Database } from '../store/db.js'
 import type { UpscaleTask } from '@mediagrab/shared'
 
 const control = vi.hoisted(() => ({ mode: 'success', inFlight: 0, peak: 0, blockCommit: false, unsupportedLinks: false, releaseCommit: undefined as undefined | (() => void), beforeLink: undefined as undefined | (() => void) }))
-vi.mock('./tools.js', async (original) => ({ ...await original<typeof import('./tools.js')>(), capability: vi.fn(async () => ({ capability: { available: true }, tools: { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' } })) }))
-vi.mock('./probe.js', async (original) => ({ ...await original<typeof import('./probe.js')>(), inspect: vi.fn(async () => ({})), timeline: vi.fn(async () => {}), supportedMedia: vi.fn(() => ({ width: 128, height: 72, fps: '24/1', frames: 26, duration: 26 / 24, audio: false })) }))
+vi.mock('./tools.js', async (original) => ({ ...await original<typeof import('./tools.js')>(), capability: vi.fn(async () => ({ capability: { available: true, imageAvailable: true }, tools: { ffmpeg: 'fixture', ffprobe: 'fixture', engine: 'fixture', models: 'fixture' } })) }))
+vi.mock('./probe.js', async (original) => ({ ...await original<typeof import('./probe.js')>(), inspect: vi.fn(async () => ({})), inspectImage: vi.fn(async () => ({})), timeline: vi.fn(async () => {}), supportedMedia: vi.fn(() => ({ width: 128, height: 72, fps: '24/1', frames: 26, duration: 26 / 24, audio: false })), supportedImage: vi.fn(() => ({ width: 800, height: 600, fps: '1/1', frames: 1, duration: 1, audio: false })) }))
+
+vi.mock('./image-pipeline.js', () => ({ imagePipeline: vi.fn(async (_input: string, work: string, _tools: unknown, _processes: unknown, update: (stage: string, completed: number) => void) => {
+  const file = path.join(work, 'candidate.png'); await writeFile(file, 'unit fixture, not real image upscale')
+  update('validating', 1)
+  return { path: file, bytes: 37, sha256: 'unit-test-only' }
+}) }))
+
 vi.mock('./pipeline.js', async (original) => ({ ...await original<typeof import('./pipeline.js')>(), pipeline: vi.fn(async (_input, work, _tools, processes, update) => {
   control.peak = Math.max(control.peak, ++control.inFlight)
   try {
@@ -29,7 +36,9 @@ vi.mock('node:fs/promises', async (original) => {
   } }
 })
 vi.mock('./thumbnail.js', () => ({ firstFrame: vi.fn(async () => Buffer.from('89504e470d0a1a0a', 'hex')) }))
+vi.mock('./inpainting.js', () => ({ repairImagePreview: vi.fn(async () => Buffer.from('PNG')) }))
 import { firstFrame } from './thumbnail.js'
+import { repairImagePreview } from './inpainting.js'
 import { UpscaleService } from './service.js'
 let root: string, db: Database, service: UpscaleService, input: string
 beforeEach(async () => {
@@ -45,6 +54,41 @@ async function terminal(id: string): Promise<UpscaleTask> {
   for (let i = 0; i < 500; i++) { const t = service.get(id); if (!['queued', 'running'].includes(t.status)) { await new Promise((r) => setTimeout(r, 5)); return t }; await new Promise((r) => setTimeout(r, 2)) }
   throw new Error('unit job timed out')
 }
+describe('single-image upscale task lifecycle', () => {
+  it('authorizes a native-selected PNG, queues a PNG result and keeps its type in task history', async () => {
+    const image = path.join(root, 'portrait.png')
+    await writeFile(image, 'fixture source image')
+    const identity = await import('./service.js').then(({ inputIdentity }) => inputIdentity(image, 'image'))
+    const g = await service.authorize(image, root, 'image')
+    expect(g).toMatchObject({ kind: 'image', media: { width: 800, height: 600, frames: 1 } })
+    const task = await service.create({ grant: g.grant, kind: 'image', fileName: 'portrait-2x' })
+    expect(task).toMatchObject({ kind: 'image', output: path.join(root, 'portrait-2x.png') })
+    expect((await terminal(task.id)).status).toBe('succeeded')
+    expect(service.get(task.id)).toMatchObject({ kind: 'image', completedFrames: 1 })
+    expect(await readFile(image, 'utf8')).toBe('fixture source image')
+    expect(identity).toEqual(expect.any(String))
+  })
+  it('rejects a video/image mode mismatch against its one-use grant', async () => {
+    const image = path.join(root, 'mismatch.jpg')
+    await writeFile(image, 'fixture source image')
+    const g = await service.authorize(image, root, 'image')
+    await expect(service.create({ grant: g.grant, kind: 'video', fileName: 'wrong.mp4' })).rejects.toThrow('不一致')
+    await expect(service.create({ grant: g.grant, kind: 'image', fileName: 'right' })).resolves.toMatchObject({ kind: 'image', output: path.join(root, 'right.png') })
+  })
+  it('requires the exact image repair selection to have a generated preview before queuing', async () => {
+    const image = path.join(root, 'repair.png')
+    await writeFile(image, 'fixture source image')
+    const g = await service.authorize(image, root, 'image')
+    const strokes = [{ radius: 0.02, points: [{ x: 0.2, y: 0.3 }] }]
+    await expect(service.create({ grant: g.grant, kind: 'image', fileName: 'fixed.png', repair: strokes })).rejects.toThrow('预览')
+    await service.repairPreview(g.grant, strokes)
+    expect(repairImagePreview).toHaveBeenCalledWith(image, expect.anything(), strokes, 'fixture', expect.anything())
+    const changed = [{ radius: 0.02, points: [{ x: 0.8, y: 0.3 }] }]
+    await expect(service.create({ grant: g.grant, kind: 'image', fileName: 'fixed.png', repair: changed })).rejects.toThrow('不一致')
+    await expect(service.create({ grant: g.grant, kind: 'image', fileName: 'fixed.png', repair: strokes })).resolves.toMatchObject({ kind: 'image' })
+  })
+})
+
 describe('isolated upscale task lifecycle (mocked inference, not quality evidence)', () => {
   it('consumes grants once and refuses arbitrary/ungranted paths', async () => {
     const g = await grant(); const task = await service.create({ grant: g.grant, fileName: 'new.mp4' })

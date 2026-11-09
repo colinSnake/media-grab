@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { FileVideo2 } from 'lucide-react'
+import { FileVideo2, Image as ImageIcon } from 'lucide-react'
+import type { UpscaleKind } from '@mediagrab/shared'
 import { fetchWithCoreAuth } from '../api'
 
-export function UpscaleTaskCover({ taskId, children }: { taskId: string; children: ReactNode }) {
+export function UpscaleTaskCover({ taskId, kind = 'video', children }: { taskId: string; kind?: UpscaleKind; children: ReactNode }) {
   const element = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [source, setSource] = useState('')
@@ -29,8 +30,8 @@ export function UpscaleTaskCover({ taskId, children }: { taskId: string; childre
     return () => { disposed = true; controller.abort(); if (url) URL.revokeObjectURL(url) }
   }, [taskId, visible])
   return <div ref={element} className="upscale-job-cover">
-    <FileVideo2 className="upscale-cover-fallback" aria-hidden="true" />
-    {source && <img src={source} alt="源视频首帧" onError={() => setSource('')} />}
+    {kind === 'image' ? <ImageIcon className="upscale-cover-fallback" aria-hidden="true" /> : <FileVideo2 className="upscale-cover-fallback" aria-hidden="true" />}
+    {source && <img src={source} alt={kind === 'image' ? '源图片预览' : '源视频首帧'} onError={() => setSource('')} />}
     {children}
   </div>
 }

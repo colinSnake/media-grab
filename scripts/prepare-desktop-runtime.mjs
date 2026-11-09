@@ -72,6 +72,28 @@ async function removeMatchingFiles(directory, predicate) {
   }
 }
 
+async function keepNativeOnnxRuntime(directory) {
+  const platformDirectory = path.join(directory, 'node_modules/onnxruntime-node/bin/napi-v6')
+  const platform = process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux'
+  const architecture = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch
+  const nativeDirectory = path.join(platformDirectory, platform)
+  const entries = await readdir(platformDirectory, { withFileTypes: true })
+  for (const entry of entries) {
+    const entryPath = path.join(platformDirectory, entry.name)
+    if (entry.name !== platform) {
+      await rm(entryPath, { recursive: true, force: true })
+      continue
+    }
+    const architectures = await readdir(entryPath, { withFileTypes: true })
+    for (const candidate of architectures) {
+      if (candidate.isDirectory() && candidate.name !== architecture) await rm(path.join(entryPath, candidate.name), { recursive: true, force: true })
+    }
+  }
+  if (!(await import('node:fs').then(({ existsSync }) => existsSync(nativeDirectory)))) {
+    throw new Error(`桌面核心缺少本机 ONNX Runtime: ${platform}-${architecture}`)
+  }
+}
+
 console.log('构建 shared 和 server ...')
 run('pnpm', ['build:shared'])
 run('pnpm', ['build:server'])
@@ -101,6 +123,7 @@ run('pnpm', deployArgs)
 await rm(path.join(deployDir, 'node_modules', '@mediagrab', 'server'), { force: true })
 await rm(path.join(deployDir, 'node_modules', '.pnpm', 'node_modules', '@mediagrab', 'server'), { force: true })
 await normalizeDeployLinks(deployDir)
+await keepNativeOnnxRuntime(deployDir)
 
 const deployedEntry = path.join(deployDir, 'dist', 'index.js')
 const webDist = path.join(root, 'apps', 'web', 'dist')

@@ -1,9 +1,9 @@
-import type { UpscaleMedia } from '@mediagrab/shared'
+import type { UpscaleKind, UpscaleMedia } from '@mediagrab/shared'
 import type { UpscaleSelection } from '../native'
 
-export interface UpscalePreview { grant: string; media: UpscaleMedia }
-type Selection = { input: UpscaleSelection; directory: UpscaleSelection }
-const selectionKey = ({ input, directory }: Selection) => JSON.stringify([input.path, input.proof, directory.path, directory.proof])
+export interface UpscalePreview { grant: string; kind: UpscaleKind; media: UpscaleMedia }
+type Selection = { input: UpscaleSelection; directory: UpscaleSelection; kind: UpscaleKind }
+const selectionKey = ({ input, directory, kind }: Selection) => JSON.stringify([kind, input.path, input.proof, directory.path, directory.proof])
 
 /** Share in-flight checks and renew before the core's ten-minute grant expiry. */
 export class UpscaleProbeLoader {
@@ -22,8 +22,6 @@ export class UpscaleProbeLoader {
     if (cached) return Promise.resolve(cached)
     const key = selectionKey(selection), revision = this.revision
     if (this.pending?.key === key && this.pending.revision === revision) return this.pending.promise
-    // The core permits only one media check at a time. Let obsolete checks settle
-    // before a new selection starts; a failed old check must not block the next one.
     const previous = this.pending?.promise.catch(() => {}) ?? Promise.resolve()
     const promise = previous.then(() => this.load(selection)).then((value) => {
       if (revision === this.revision) this.cached = { key, value, checkedAt: this.now() }

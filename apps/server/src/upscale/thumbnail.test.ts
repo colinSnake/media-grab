@@ -26,7 +26,7 @@ it('reads exactly the first video frame with bounded PNG output and local-only d
 it('rejects empty or non-image output', async () => {
   for (const bytes of [Buffer.alloc(0), Buffer.from('not png')]) {
     fixture.bytes = bytes
-    await expect(firstFrame('fixture', '/fixture/input.mp4', new AbortController().signal)).rejects.toThrow('首帧')
+    await expect(firstFrame('fixture', '/fixture/input.mp4', new AbortController().signal)).rejects.toThrow('预览')
   }
 })
 it('terminates oversized output and never returns a truncated image', async () => {
@@ -37,4 +37,11 @@ it('terminates oversized output and never returns a truncated image', async () =
 it('preserves decode failure diagnostics', async () => {
   fixture.error = true
   await expect(firstFrame('fixture', '/fixture/input.mp4', new AbortController().signal)).rejects.toThrow('ffmpeg failed')
+})
+
+it('uses a restricted still-image demuxer for image previews', async () => {
+  await firstFrame('fixture-ffmpeg', '/fixture/input.png', new AbortController().signal, 'image')
+  const [, args] = fixture.start.mock.calls.at(-1)!
+  expect(args).toEqual(expect.arrayContaining(['-protocol_whitelist', 'file', '-f', 'image2', '-pattern_type', 'none']))
+  expect(args).not.toContain('mov')
 })

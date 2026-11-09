@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { upscaleCreateSchema, upscaleFileNameSchema } from './upscale.js'
+import { repairStrokesSchema, upscaleCreateSchema, upscaleFileNameSchema, upscaleImageFileNameSchema } from './upscale.js'
 
 describe('upscale output file names', () => {
   it.each([
@@ -33,5 +33,31 @@ describe('upscale output file names', () => {
     expect(upscaleFileNameSchema.parse('中'.repeat(78))).toBe('中'.repeat(78) + '.mp4')
     expect(upscaleFileNameSchema.safeParse('é'.repeat(80)).success).toBe(false)
     expect(upscaleFileNameSchema.safeParse('a'.repeat(177)).success).toBe(false)
+  })
+})
+
+
+describe('image upscale output names', () => {
+  it('normalizes to PNG and requires PNG for image jobs', () => {
+    expect(upscaleImageFileNameSchema.parse('  人像-2x  ')).toBe('人像-2x.png')
+    expect(upscaleCreateSchema.parse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', kind: 'image', fileName: '照片-2x' })).toMatchObject({ kind: 'image', fileName: '照片-2x.png' })
+    expect(upscaleCreateSchema.safeParse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', kind: 'image', fileName: 'photo.jpg' }).success).toBe(false)
+  })
+  it('keeps video as the backwards-compatible default', () => {
+    expect(upscaleCreateSchema.parse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', fileName: 'clip' })).toMatchObject({ kind: 'video', fileName: 'clip.mp4' })
+  })
+})
+
+describe('image repair strokes', () => {
+  const strokes = [{ radius: 0.02, points: [{ x: 0.1, y: 0.2 }, { x: 0.8, y: 0.7 }] }]
+  it('accepts bounded normalized strokes only for image jobs', () => {
+    expect(repairStrokesSchema.parse(strokes)).toEqual(strokes)
+    expect(upscaleCreateSchema.safeParse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', kind: 'image', fileName: 'fixed.png', repair: strokes }).success).toBe(true)
+    expect(upscaleCreateSchema.safeParse({ grant: 'f6bf36b6-33af-477b-aef5-5b7c369bdb16', kind: 'video', fileName: 'clip.mp4', repair: strokes }).success).toBe(false)
+  })
+  it('rejects invalid dimensions and too many points', () => {
+    expect(repairStrokesSchema.safeParse([{ radius: 0.2, points: [{ x: 0.5, y: 0.5 }] }]).success).toBe(false)
+    expect(repairStrokesSchema.safeParse([{ radius: 0.02, points: Array.from({ length: 257 }, () => ({ x: 0.5, y: 0.5 })) }]).success).toBe(false)
+    expect(repairStrokesSchema.safeParse(Array.from({ length: 17 }, () => ({ radius: 0.02, points: Array.from({ length: 256 }, () => ({ x: 0.5, y: 0.5 })) }))).success).toBe(false)
   })
 })
