@@ -142,3 +142,24 @@ test('staging rejects misspelled modes instead of silently preparing release res
     assert.equal(existsSync(marker), false); assert.equal(existsSync(destination), false)
   })
 })
+
+test('ONNX staging removes only byte-identical unreferenced versioned dylibs and verifies native load', async () => {
+  const { pruneDuplicateOnnxLibrary } = await import('./onnx-runtime-layout.mjs')
+  const { mkdtemp, writeFile, readdir, rm } = await import('node:fs/promises')
+  const path = await import('node:path'), os = await import('node:os')
+  const root = await mkdtemp(path.join(os.tmpdir(), 'onnx-layout-'))
+  const canonical = path.join(root, 'libonnxruntime.1.dylib'), duplicate = path.join(root, 'libonnxruntime.1.31.1.dylib')
+  try {
+    await writeFile(canonical, 'native fixture'); await writeFile(duplicate, 'native fixture'); await writeFile(path.join(root, 'onnxruntime_binding.node'), 'binding')
+    let checks = 0
+    const options = { platform: 'darwin', inspect: () => '@rpath/libonnxruntime.1.dylib', verify: () => { checks++ } }
+    assert.equal(await pruneDuplicateOnnxLibrary(root, options), Buffer.byteLength('native fixture'))
+    assert.equal(checks, 1); assert.ok(!(await readdir(root)).includes('libonnxruntime.1.31.1.dylib'))
+    await writeFile(duplicate, 'changed native')
+    assert.equal(await pruneDuplicateOnnxLibrary(root, options), 0)
+    await writeFile(duplicate, 'native fixture')
+    assert.equal(await pruneDuplicateOnnxLibrary(root, { ...options, inspect: () => '@rpath/libonnxruntime.1.31.1.dylib' }), 0)
+    assert.equal(await pruneDuplicateOnnxLibrary(root, { ...options, platform: 'linux' }), 0)
+    await assert.rejects(pruneDuplicateOnnxLibrary(root, { ...options, verify: () => { throw new Error('native load failed') } }), /native load failed/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

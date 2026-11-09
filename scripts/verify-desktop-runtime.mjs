@@ -73,6 +73,7 @@ try {
     import { createHmac } from 'node:crypto'
     import { defaultAppConfig } from '@mediagrab/shared'
     import { buildApp } from './dist/app.js'
+    await import('onnxruntime-node') // Validate native load in the relocated runtime, without model weights.
     const token = 'e'.repeat(64)
     const app = await buildApp({ config: defaultAppConfig(), logger: false, coreToken: token })
     try {

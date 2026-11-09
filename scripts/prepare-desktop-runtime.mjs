@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { pruneDuplicateOnnxLibrary } from './onnx-runtime-layout.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const runtimeDir = path.join(root, 'apps', 'desktop', 'src-tauri', 'resources', 'core')
@@ -89,9 +90,11 @@ async function keepNativeOnnxRuntime(directory) {
       if (candidate.isDirectory() && candidate.name !== architecture) await rm(path.join(entryPath, candidate.name), { recursive: true, force: true })
     }
   }
-  if (!(await import('node:fs').then(({ existsSync }) => existsSync(nativeDirectory)))) {
+  if (!(await import('node:fs').then(({ existsSync }) => existsSync(path.join(nativeDirectory, architecture))))) {
     throw new Error(`桌面核心缺少本机 ONNX Runtime: ${platform}-${architecture}`)
   }
+  const saved = await pruneDuplicateOnnxLibrary(path.join(nativeDirectory, architecture), { node: nodeSource })
+  console.log(`ONNX Runtime 去重: ${(saved / 1024 ** 2).toFixed(2)} MiB`)
 }
 
 console.log('构建 shared 和 server ...')
